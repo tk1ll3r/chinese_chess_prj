@@ -31,7 +31,6 @@ These items are left for the next weeks so the report stays aligned with the rea
 
 ```text
 chinese_chess_project/
-├── docs/week1/
 ├── tests/
 ├── chinese_chess_ai/
 │   ├── ai/
