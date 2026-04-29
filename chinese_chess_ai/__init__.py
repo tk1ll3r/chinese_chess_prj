@@ -1,1 +1,1 @@
-"""Week 1 Chinese Chess AI project package."""
+"""Gói mã nguồn chính của đồ án Cờ Tướng DSA của Thương."""
