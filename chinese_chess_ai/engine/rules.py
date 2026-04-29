@@ -13,9 +13,6 @@ def inside_board(position: Position) -> bool:
     nước đi và kiểm tra tấn công.
     Input/Output: Input là `position` dưới dạng `(row, col)`. Output là
     `True` nếu tọa độ thuộc bàn cờ 10x9, ngược lại là `False`.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     row, col = position
     return 0 <= row < BOARD_ROWS and 0 <= col < BOARD_COLS
@@ -27,9 +24,6 @@ def inside_palace(side: Side, position: Position) -> bool:
     Role in System: Áp đặt luật di chuyển trong cung cho quân tướng và sĩ.
     Input/Output: Input là `side` và `position`. Output là `True` nếu ô đó
     thuộc phạm vi cung của bên tương ứng, ngược lại là `False`.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     row, col = position
     return row in PALACE_ROWS[side] and col in PALACE_COLUMNS
@@ -203,9 +197,6 @@ def generate_pseudo_legal_moves_for_side(state: GameState, side: Side) -> list[M
     tiếp thành các nước đi hợp lệ hoàn toàn.
     Input/Output: Input là `state` và `side`. Output là danh sách `Move`
     chỉ thỏa luật di chuyển của quân cờ.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     moves: list[Move] = []
     for row, col, piece in state.iter_pieces(side):
@@ -221,9 +212,6 @@ def generals_face_each_other(state: GameState) -> bool:
     không có quân cản ở giữa.
     Input/Output: Input là `state`. Output là `True` nếu khoảng giữa hai
     tướng trên cùng cột không có quân nào chắn.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     red_row, red_col = state.red_general_position
     black_row, black_col = state.black_general_position
@@ -388,9 +376,6 @@ def is_square_attacked(state: GameState, target: Position, attacker_side: Side) 
     tướng và lọc nước đi hợp lệ.
     Input/Output: Input là `state`, `target` và `attacker_side`. Output là
     `True` nếu có ít nhất một quân hoặc một hướng tấn công chạm tới ô đó.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     if _general_attack_reaches(state, target, attacker_side):
         return True
@@ -420,9 +405,6 @@ def is_in_check(state: GameState, side: Side) -> bool:
     cấp tín hiệu nguy hiểm chiến thuật cho engine và giao diện.
     Input/Output: Input là `state` và `side`. Output là `True` nếu tướng
     của bên đó đang bị tấn công hoặc hai tướng đang đối mặt.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     if generals_face_each_other(state):
         return True
@@ -439,9 +421,6 @@ def generate_pseudo_legal_moves(state: GameState) -> list[Move]:
     lượt hiện tại được lưu trong `GameState`.
     Input/Output: Input là `state`. Output là danh sách `Move` giả hợp lệ
     dành cho `state.side_to_move`.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     return generate_pseudo_legal_moves_for_side(state, state.side_to_move)
 
@@ -453,9 +432,6 @@ def generate_legal_moves(state: GameState) -> list[Move]:
     test và AI search.
     Input/Output: Input là `state`. Output là danh sách `Move` còn hợp lệ
     sau khi đã lọc tự chiếu tướng và lỗi đối mặt tướng.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     moving_side = state.side_to_move
     legal_moves: list[Move] = []

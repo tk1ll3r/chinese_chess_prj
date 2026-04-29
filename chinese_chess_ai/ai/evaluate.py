@@ -14,9 +14,6 @@ def material_score(state: GameState, perspective: Side) -> int:
     giai đoạn đầu của AI search.
     Input/Output: Input là `state` và `perspective`. Output là số nguyên,
     trong đó giá trị dương có lợi cho `perspective`.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     score = 0
     for _row, _col, piece in state.iter_pieces():
@@ -35,9 +32,6 @@ def positional_score(state: GameState, perspective: Side) -> int:
     nhận biết vị trí nhẹ, đặc biệt cho quân tốt sau khi qua sông.
     Input/Output: Input là `state` và `perspective`. Output là số nguyên
     biểu diễn phần điều chỉnh điểm theo vị trí cho bên đó.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     score = 0
     for row, _col, piece in state.iter_pieces():
@@ -62,9 +56,6 @@ def evaluate_position(state: GameState, perspective: Side | None = None) -> int:
     cây tìm kiếm và khi so sánh nhanh các nước đi ứng viên.
     Input/Output: Input là `state` và `perspective` tùy chọn. Output là số
     nguyên biểu diễn điểm đánh giá cho bên được chọn.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     side = perspective or state.side_to_move
     return material_score(state, side) + positional_score(state, side)

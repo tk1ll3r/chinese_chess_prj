@@ -22,9 +22,6 @@ class SearchConfig:
     Role in System: Cho phép nơi gọi điều khiển độ sâu tìm kiếm và việc bật
     tắt cắt tỉa mà không cần sửa mã cài đặt thuật toán.
     Input/Output: Lưu các giá trị cấu hình `depth` và `use_alpha_beta`.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     depth: int = 2
     use_alpha_beta: bool = True
@@ -45,9 +42,6 @@ def choose_move(state: GameState, config: SearchConfig | None = None) -> Move | 
     đánh giá heuristic và tìm kiếm trên cây trạng thái.
     Input/Output: Input là `state` và `config` tùy chọn. Output là `Move`
     được chọn cho `state.side_to_move`, hoặc `None` nếu không có nước đi hợp lệ.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     search_config = config or SearchConfig()
     depth = max(1, search_config.depth)
@@ -107,9 +101,6 @@ def _negamax(
     sử dụng các trạng thái đã gặp thông qua bảng băm chuyển vị.
     Input/Output: Input gồm `state` hiện tại, các ngưỡng tìm kiếm, `depth`
     còn lại và bảng chuyển vị. Output là một điểm số kiểu `float`.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     alpha_original = alpha
     beta_original = beta
@@ -179,9 +170,6 @@ def _evaluate_leaf(state: GameState, legal_moves: list[Move]) -> float:
     để truyền ngược lên các mức phía trên.
     Input/Output: Input là `state` và danh sách `legal_moves` đã tính sẵn.
     Output là điểm `float` hoặc mức phạt thua chiếu bí.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     if not legal_moves:
         return -MATE_SCORE
@@ -199,9 +187,6 @@ def _ordered_moves(
     được lưu trong cache lên trước để cắt tỉa hiệu quả hơn.
     Input/Output: Input là `state`, `legal_moves` và `preferred_move` tùy
     chọn. Output là danh sách `Move` đã được sắp xếp.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     def move_sort_key(move: Move) -> tuple[int, int, Position, Position]:
         preferred_bonus = 1 if preferred_move is not None and move == preferred_move else 0
@@ -221,9 +206,6 @@ def _state_key(state: GameState) -> StateKey:
     trong quá trình heuristic search.
     Input/Output: Input là `state`. Output là một `StateKey` có thể băm,
     gồm bên sắp đi và nội dung bàn cờ.
-    Author: 25521829 - Nguyen Van Thuong
-    Date: 2026-04-29
-    Ver: 0.2
     """
     board_key = tuple(tuple(row) for row in state.board)
     return (state.side_to_move, board_key)
