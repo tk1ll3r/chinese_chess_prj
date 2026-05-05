@@ -80,7 +80,7 @@ python -m unittest discover -s tests
 Kết quả: **29 tests pass** trong khoảng **0.3s**. Các nhóm test bao phủ trạng thái bàn cờ, luật chơi, AI search, GUI rendering và networking.
 
 ## 6. Tài liệu tham khảo
-- Repo tham khảo: Dylannni/ChineseChess_XiangQi. Repo này được dùng để tham khảo cách tổ chức một project Cờ Tướng hoàn chỉnh, đặc biệt ở phần giao diện, tài nguyên quân cờ và cách trình bày trải nghiệm chơi. Các phần DSA cốt lõi của đồ án như biểu diễn bàn cờ, sinh/lọc nước đi, kiểm tra chiếu, undo/backtracking và AI search được tự thiết kế, cài đặt và kiểm thử trong project.
+- Repo tham khảo: Dylannni/ChineseChess_XiangQi. Repo này chỉ được dùng để tham khảo hướng trình bày giao diện và tài nguyên hình ảnh quân cờ. Các phần DSA cốt lõi của đồ án như biểu diễn bàn cờ, sinh/lọc nước đi, kiểm tra chiếu, undo/backtracking và AI search không tham khảo thuật toán từ repo này mà được tự thiết kế, cài đặt và kiểm thử trong project.
 - Mã nguồn dự án: [tk1ll3r/chinese_chess_prj](https://github.com/tk1ll3r/chinese_chess_prj).
 - Docstring tuần 2: [docs/week2/dsa_docstrings.md](docs/week2/dsa_docstrings.md).
 - Docstring tuần 3: [docs/week3/dsa_docstrings.md](docs/week3/dsa_docstrings.md).
