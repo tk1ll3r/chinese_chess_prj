@@ -20,6 +20,7 @@ Họ và tên: Nguyễn Văn Thương
 - **Queue sự kiện GUI/network**: gom sự kiện từ thread LAN rồi xử lý an toàn ở luồng Tkinter chính.
 - **Dictionary/hash table**: dùng cho payload JSON, tra cứu nước đi hợp lệ, bảng chuyển vị trong AI và phát hiện trùng room code LAN.
 - **Socket TCP/UDP**: TCP đồng bộ nước đi giữa host-client, UDP broadcast để tìm phòng theo room code trong cùng LAN.
+- **Bảng ánh xạ asset quân cờ**: ánh xạ `PieceKind` và `Side` sang mã ảnh GIF của bộ XQWizard, giúp GUI render đúng quân cờ và kiểm tra thiếu asset trước khi chạy.
 
 ### Giải thuật
 - **Sinh và lọc nước đi hợp lệ**: tiếp tục dùng engine luật để đảm bảo mọi chế độ chơi đều chỉ nhận nước đi đúng luật.
@@ -29,6 +30,8 @@ Họ và tên: Nguyễn Văn Thương
 - **LAN room discovery**: host broadcast thông tin phòng, client thu thập thông báo theo TTL và chọn đúng phòng theo room code.
 - **Host-authoritative validation**: host kiểm tra lượt đi và nước hợp lệ trước khi cập nhật/broadcast trạng thái.
 - **Ánh xạ tọa độ GUI**: đổi vị trí bàn cờ sang pixel và ngược lại để xử lý click, highlight quân được chọn và ô đi hợp lệ.
+- **Chuẩn hóa room code và phát hiện trùng phòng**: room code được normalize, kiểm tra độ dài/ký tự hợp lệ và probe va chạm trước khi host mở phòng.
+- **Tách luồng xử lý network khỏi GUI**: các callback mạng được đưa vào queue và Tkinter poll định kỳ, tránh cập nhật giao diện trực tiếp từ thread nền.
 
 ## 3. Quá trình thực hiện
 ### Tuần 1
@@ -47,10 +50,14 @@ Họ và tên: Nguyễn Văn Thương
 - Hoàn thiện menu chính với các lựa chọn: chơi 2 người cùng máy, chơi với AI, chơi qua LAN và thoát.
 - Tích hợp chế độ chơi với AI: người chơi chọn Đỏ/Đen, chọn độ khó Easy/Medium/Hard tương ứng depth 1/2/3.
 - Nâng cấp UX ván cờ: highlight quân đang chọn, highlight ô đi hợp lệ, hiển thị lượt đi, lịch sử nước đi, quân bị bắt và trạng thái kết thúc ván.
+- Tích hợp bộ ảnh quân cờ XQWizard, kiểm tra đủ asset khi khởi tạo và ánh xạ đúng mã hiển thị cho từng quân.
+- Bổ sung khả năng co giãn bàn cờ theo kích thước cửa sổ và cấu hình font để hiển thị tiếng Việt ổn định hơn trên GUI.
 - Bổ sung UX khi bị chiếu: tô sáng Tướng bị chiếu, nhấp nháy cảnh báo và chỉ cho phép nước thoát chiếu.
 - Xây dựng LAN MVP: host tạo room code ngắn, client join bằng room code, tìm phòng bằng UDP broadcast và đồng bộ bàn cờ bằng TCP.
+- Hoàn thiện xử lý room code LAN: sinh mã ngắn, chuẩn hóa input, phát hiện trùng code trong LAN và thông báo lỗi khi không tìm được phòng.
 - Thiết kế tầng `NetworkTransport` để tách GUI khỏi chi tiết host/client, giúp controller dùng chung cho local, AI và LAN.
 - Cập nhật tài liệu `README.md` và `HUONG_DAN_CHOI.md` để hướng dẫn chạy game, chơi AI và chơi LAN.
+- Duy trì các mode CLI (`summary`, `cli`, `ai`) để kiểm tra nhanh engine, AI và trạng thái chiếu mà không cần mở GUI.
 - Mở rộng test cho GUI rendering, networking serialization, room code/discovery, rules, state và search.
 - Bổ sung phần docstring tuần 3 theo mẫu `def / Role in System / Input/Output` cho các nhóm GUI, AI search và LAN networking.
 
@@ -59,7 +66,9 @@ Họ và tên: Nguyễn Văn Thương
 - Người chơi có thể chơi 2 người cùng máy, chơi với AI theo độ khó hoặc thử chế độ LAN MVP trong cùng mạng nội bộ.
 - AI sử dụng lại engine sinh nước đi hợp lệ nên không đi sai luật, đồng thời có cấu hình độ sâu rõ ràng.
 - LAN MVP đã có luồng host-client, room code, phát hiện phòng, xác thực nước đi ở host và đồng bộ trạng thái sau mỗi nước hợp lệ.
+- GUI đã dùng asset thật, có kiểm tra bundle ảnh, ánh xạ tọa độ click, scale bàn cờ và thông báo trạng thái/checkmate rõ hơn.
 - Tài liệu hướng dẫn chơi và README đã được cập nhật để người dùng có thể chạy, test và hiểu giới hạn hiện tại của bản MVP.
+- Các giới hạn hiện tại cũng đã được note rõ: LAN chỉ trong cùng mạng nội bộ, chưa có undo/restart đồng bộ, chưa có lobby/chat/reconnect hoặc chơi qua Internet public.
 
 ## 5. Kiểm thử
 Lệnh đã chạy:
@@ -71,7 +80,7 @@ python -m unittest discover -s tests
 Kết quả: **29 tests pass** trong khoảng **0.3s**. Các nhóm test bao phủ trạng thái bàn cờ, luật chơi, AI search, GUI rendering và networking.
 
 ## 6. Tài liệu tham khảo
-- Repo tham khảo: Dylannni/ChineseChess_XiangQi.
+- Repo tham khảo: Dylannni/ChineseChess_XiangQi. Repo này được dùng để tham khảo cách tổ chức một project Cờ Tướng hoàn chỉnh, đặc biệt ở phần giao diện, tài nguyên quân cờ và cách trình bày trải nghiệm chơi. Các phần DSA cốt lõi của đồ án như biểu diễn bàn cờ, sinh/lọc nước đi, kiểm tra chiếu, undo/backtracking và AI search được tự thiết kế, cài đặt và kiểm thử trong project.
 - Mã nguồn dự án: [tk1ll3r/chinese_chess_prj](https://github.com/tk1ll3r/chinese_chess_prj).
 - Docstring tuần 2: [docs/week2/dsa_docstrings.md](docs/week2/dsa_docstrings.md).
 - Docstring tuần 3: [docs/week3/dsa_docstrings.md](docs/week3/dsa_docstrings.md).
@@ -96,4 +105,4 @@ Input/Output: ...
 """
 ```
 
-Tuần 3 tập trung ghi docstring cho các nhóm mới hoặc được mở rộng: `GameController`, `BoardView`, `SearchConfig`, `TranspositionEntry`, `NetworkState`, `NetworkTransport`, `LanGameServer`, `LanGameClient`, `LanRoomTransport`, `RoomAnnouncement`, cơ chế serialize/deserialize và room discovery. Nội dung chi tiết được lưu tại `docs/week3/dsa_docstrings.md`.
+Tuần 3 tập trung ghi docstring cho các nhóm mới hoặc được mở rộng: `GameApp`, `GameController`, `BoardView`, `configure_fonts`, `SearchConfig`, `TranspositionEntry`, `NetworkState`, `NetworkTransport`, `LanGameServer`, `LanGameClient`, `LanRoomTransport`, `RoomAnnouncement`, room code, cơ chế serialize/deserialize và room discovery. Nội dung chi tiết được lưu tại `docs/week3/dsa_docstrings.md`.
