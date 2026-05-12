@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -9,7 +10,10 @@ from ..engine.moves import Move
 from ..engine.state import GameState
 from ..engine.types import Piece, PieceKind, Position, Side
 
-ASSET_DIR = Path(__file__).resolve().parents[2] / "assets" / "xqwizard_gui"
+if getattr(sys, "frozen", False):
+    ASSET_DIR = Path(sys._MEIPASS) / "assets" / "xqwizard_gui"
+else:
+    ASSET_DIR = Path(__file__).resolve().parents[2] / "assets" / "xqwizard_gui"
 BOARD_IMAGE_NAME = "WHITE.GIF"
 SELECTION_IMAGE_NAME = "OOS.GIF"
 BASE_CELL_SIZE = 40

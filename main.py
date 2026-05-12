@@ -14,7 +14,7 @@ def print_engine_summary() -> None:
     legal_moves = generate_legal_moves(state)
     print("Thuong DSA Engine Summary")
     print()
-    print(render_board(state))
+    print(state.render_ascii())
     print()
     print(f"Pieces on board: {state.count_pieces()}")
     print(f"Side to move: {state.side_to_move.value}")
@@ -23,15 +23,6 @@ def print_engine_summary() -> None:
     print(f"Red in check: {is_in_check(state, Side.RED)}")
     print(f"Black in check: {is_in_check(state, Side.BLACK)}")
     print(f"Legal opening moves: {len(legal_moves)}")
-
-
-def render_board(state: GameState) -> str:
-    header = "     " + "  ".join(str(col) for col in range(9))
-    lines = [header]
-    for row_index, row in enumerate(state.board):
-        pieces = " ".join(piece.short_code() if piece else "__" for piece in row)
-        lines.append(f"{row_index:>2} | {pieces}")
-    return "\n".join(lines)
 
 
 def format_move(move: Position | tuple[Position, Position] | object) -> str:
@@ -233,7 +224,7 @@ def main() -> None:
             play_cli(ai_side=ai_side, search_config=search_config)
             return
 
-    if not sys.stdin.isatty():
+    if sys.stdin is not None and not sys.stdin.isatty():
         print_engine_summary()
         return
 

@@ -57,23 +57,15 @@ def positional_score(state: GameState, perspective: Side) -> float:
 
 
 def mobility_score(state: GameState, perspective: Side) -> float:
-    """Evaluate piece mobility (number of legal moves)."""
-    score = 0.0
-
-    # Count legal moves for current side
     current_moves = len(generate_legal_moves(state))
-
-    # Simulate opponent's mobility
     state.side_to_move = state.side_to_move.opponent()
-    opponent_moves = len(generate_legal_moves(state))
-    state.side_to_move = state.side_to_move.opponent()  # Restore
-
+    try:
+        opponent_moves = len(generate_legal_moves(state))
+    finally:
+        state.side_to_move = state.side_to_move.opponent()
     if state.side_to_move == perspective:
-        score = (current_moves - opponent_moves) * 0.1
-    else:
-        score = (opponent_moves - current_moves) * 0.1
-
-    return score
+        return (current_moves - opponent_moves) * 0.1
+    return (opponent_moves - current_moves) * 0.1
 
 
 def king_safety_score(state: GameState, perspective: Side) -> float:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -17,7 +18,10 @@ class SoundManager:
         self._sounds: dict[SoundType, object] = {}
 
         if assets_dir is None:
-            assets_dir = Path(__file__).parent.parent.parent / "assets" / "sounds"
+            if getattr(sys, "frozen", False):
+                assets_dir = Path(sys._MEIPASS) / "assets" / "sounds"
+            else:
+                assets_dir = Path(__file__).parent.parent.parent / "assets" / "sounds"
         self.assets_dir = Path(assets_dir)
 
         if self.enabled:

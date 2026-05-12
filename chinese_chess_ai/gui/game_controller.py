@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+import time
 import tkinter as tk
 from dataclasses import dataclass
 from typing import Callable, Literal
@@ -16,7 +17,10 @@ from ..engine.types import Piece, Position, Side
 from ..network.lan_room_transport import LanRoomClientTransport, LanRoomHostTransport
 from ..network.protocol import deserialize_state
 from ..network.transports import ClientTransport, HostTransport
+from ..rating.elo import EloSystem
 from .board_view import BoardView, checked_general_position, piece_display_code
+from .move_history import MoveHistory
+from .timer_manager import TimerManager
 
 GameMode = Literal["local", "ai", "lan_host", "lan_join"]
 
@@ -46,27 +50,20 @@ class GameController:
         self.search_config = self._difficulty_to_config(options.difficulty)
         self.local_side: Side | None = self._initial_local_side()
         self.room_code = options.room_code
-        self.move_history: list[str] = []
-        self.captured_by_red: list[str] = []
-        self.captured_by_black: list[str] = []
+        self.move_history = MoveHistory()
+        self.timer = TimerManager()
+        self.elo = EloSystem()
+        self.red_player_name = "Player 1"
+        self.black_player_name = "Player 2"
+        self.elo_red_var = tk.StringVar(value=str(self.elo.get_rating("red")))
+        self.elo_black_var = tk.StringVar(value=str(self.elo.get_rating("black")))
+        self.elo_delta_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="")
         self.turn_var = tk.StringVar(value="")
         self.mode_var = tk.StringVar(value="")
         self.history_var = tk.StringVar(value="No moves yet.")
         self.captured_var = tk.StringVar(value="Red captures: -\nBlack captures: -")
         self.eval_var = tk.StringVar(value="0.0")
-
-        # Timer variables
-        self.red_time_var = tk.StringVar(value="10:00")
-        self.black_time_var = tk.StringVar(value="10:00")
-        self.red_time_seconds = 600  # 10 minutes
-        self.black_time_seconds = 600
-        self.timer_running = False
-        self.last_timer_update = None
-
-        # Timer frames (will be set in _build_left_panel)
-        self.red_timer_frame = None
-        self.black_timer_frame = None
 
         self.check_blink_on = True
         self._closed = False
@@ -81,14 +78,19 @@ class GameController:
         self.frame.grid_rowconfigure(0, weight=1)
 
         # Configure 3-column layout
-        self.frame.grid_columnconfigure(0, weight=0, minsize=180)  # Left panel
+        self.frame.grid_columnconfigure(0, weight=0, minsize=200)  # Left panel
         self.frame.grid_columnconfigure(1, weight=1)  # Board (center)
         self.frame.grid_columnconfigure(2, weight=0, minsize=250)  # Right panel
 
         # Configure root background
         self.root.configure(bg="#2b2b2b")
 
-        # Build 3-column layout
+        # Configure ttk styles for timer bars
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("Red.Horizontal.TProgressbar", background="#d32f2f", troughcolor="#1a1a1a", bordercolor="#1a1a1a", lightcolor="#d32f2f", darkcolor="#d32f2f")
+        style.configure("Black.Horizontal.TProgressbar", background="#1976D2", troughcolor="#1a1a1a", bordercolor="#1a1a1a", lightcolor="#1976D2", darkcolor="#1976D2")
+
         self._build_left_panel()
 
         # Board container with auto-scaling
@@ -128,115 +130,133 @@ class GameController:
         self.frame.destroy()
 
     def _build_left_panel(self) -> None:
-        """Build left panel with player info and timers."""
-        left_panel = tk.Frame(self.frame, bg="#1a1a1a", width=180)
+        left_panel = tk.Frame(self.frame, bg="#1a1a1a", width=200)
         left_panel.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
         left_panel.grid_propagate(False)
 
-        # Title
         tk.Label(
             left_panel,
             text="Players",
-            font=("Arial", 14, "bold"),
-            fg="#ffffff",
-            bg="#1a1a1a"
-        ).pack(pady=(10, 20))
+            font=("Arial", 16, "bold"),
+            fg="#e0e0e0",
+            bg="#1a1a1a",
+        ).pack(pady=(15, 15))
 
-        # Black player (top)
         self._build_player_card(
-            left_panel,
-            "Black Player",
-            "Player 2",
-            "1500",
-            self.black_time_var,
-            "#1976D2",  # Blue
-            is_top=True
+            left_panel, "BLACK",
+            self.black_player_name, self.elo_black_var,
+            self.timer.black_time_var,
+            accent="#1976D2", piece_char="將", is_top=True,
         )
 
-        # Separator
-        tk.Frame(left_panel, bg="#3a3a3a", height=2).pack(fill="x", pady=20)
+        separator = tk.Frame(left_panel, bg="#333333", height=1)
+        separator.pack(fill="x", padx=20, pady=15)
 
-        # Red player (bottom)
         self._build_player_card(
-            left_panel,
-            "Red Player",
-            "Player 1",
-            "1500",
-            self.red_time_var,
-            "#d32f2f",  # Red
-            is_top=False
+            left_panel, "RED",
+            self.red_player_name, self.elo_red_var,
+            self.timer.red_time_var,
+            accent="#d32f2f", piece_char="帥", is_top=False,
         )
 
     def _build_player_card(
         self,
         parent: tk.Frame,
-        label: str,
+        side_label: str,
         name: str,
-        elo: str,
+        elo_var: tk.StringVar,
         time_var: tk.StringVar,
-        color: str,
-        is_top: bool
+        accent: str,
+        piece_char: str,
+        is_top: bool,
     ) -> None:
-        """Build a player info card."""
-        # Player label
-        tk.Label(
-            parent,
-            text=label,
-            font=("Arial", 10),
-            fg="#999999",
-            bg="#1a1a1a"
-        ).pack()
+        card = tk.Frame(parent, bg="#252525", highlightbackground=accent, highlightthickness=1)
+        card.pack(padx=12, fill="x", pady=(0, 5))
 
-        # Player info card
-        card = tk.Frame(parent, bg="#2a2a2a", relief="solid", borderwidth=1)
-        card.pack(pady=(5, 0), padx=10, fill="x")
+        avatar_frame = tk.Frame(card, bg="#252525", height=55)
+        avatar_frame.pack(fill="x", pady=(10, 5))
+        avatar_frame.pack_propagate(False)
 
-        # Avatar placeholder
-        avatar = tk.Frame(card, bg="#3a3a3a", width=50, height=50)
-        avatar.pack(pady=10)
+        avatar_bg = tk.Frame(avatar_frame, bg="#333333", width=44, height=44)
+        avatar_bg.pack(side="left", padx=(12, 0))
+        avatar_bg.pack_propagate(False)
+
         tk.Label(
-            avatar,
-            text="👤",
-            font=("Arial", 20),
-            fg="#666666",
-            bg="#3a3a3a"
+            avatar_bg,
+            text=piece_char,
+            font=("Arial", 20, "bold"),
+            fg=accent,
+            bg="#333333",
         ).place(relx=0.5, rely=0.5, anchor="center")
 
-        # Name
+        info_frame = tk.Frame(avatar_frame, bg="#252525")
+        info_frame.pack(side="left", fill="x", expand=True, padx=(8, 10))
+
         tk.Label(
-            card,
+            info_frame,
             text=name,
             font=("Arial", 11, "bold"),
             fg="#ffffff",
-            bg="#2a2a2a"
-        ).pack()
+            bg="#252525",
+            anchor="w",
+        ).pack(fill="x")
 
-        # ELO
+        elo_frame = tk.Frame(info_frame, bg="#252525")
+        elo_frame.pack(fill="x")
+
         tk.Label(
-            card,
-            text=f"ELO: {elo}",
-            font=("Arial", 9),
-            fg="#999999",
-            bg="#2a2a2a"
-        ).pack(pady=(2, 10))
+            elo_frame,
+            text="ELO",
+            font=("Arial", 8),
+            fg="#888888",
+            bg="#252525",
+        ).pack(side="left")
 
-        # Timer
-        timer_frame = tk.Frame(parent, bg=color, relief="solid", borderwidth=1)
-        timer_frame.pack(pady=(10, 0), padx=10, fill="x")
+        tk.Label(
+            elo_frame,
+            textvariable=elo_var,
+            font=("Arial", 11, "bold"),
+            fg="#ffd700",
+            bg="#252525",
+        ).pack(side="left", padx=(6, 0))
+
+        self.elo_delta_label = tk.Label(
+            elo_frame,
+            textvariable=self.elo_delta_var,
+            font=("Arial", 9, "bold"),
+            fg="#4CAF50",
+            bg="#252525",
+        )
+        self.elo_delta_label.pack(side="left", padx=(4, 0))
+
+        timer_frame = tk.Frame(card, bg=accent, highlightthickness=0)
+        timer_frame.pack(fill="x", padx=0, pady=(5, 0))
 
         tk.Label(
             timer_frame,
             textvariable=time_var,
-            font=("Arial", 16, "bold"),
+            font=("Arial", 18, "bold"),
             fg="#ffffff",
-            bg=color
-        ).pack(pady=8)
+            bg=accent,
+        ).pack(pady=(4, 2))
 
-        # Store timer frame reference
+        timer_bar = ttk.Progressbar(
+            card,
+            orient="horizontal",
+            length=160,
+            mode="determinate",
+            style=f"{'Black' if is_top else 'Red'}.Horizontal.TProgressbar",
+        )
+        timer_bar.pack(pady=(2, 8), padx=10, fill="x")
+        timer_bar["maximum"] = 600
+        timer_bar["value"] = 600
+
         if is_top:
-            self.black_timer_frame = timer_frame
+            self.timer.black_timer_frame = timer_frame
+            self.timer.black_timer_bar = timer_bar
         else:
-            self.red_timer_frame = timer_frame
+            self.timer.red_timer_frame = timer_frame
+            self.timer.red_timer_bar = timer_bar
 
     def _build_right_panel(self) -> None:
         """Build right panel with controls and move history."""
@@ -351,15 +371,14 @@ class GameController:
         status_label.pack(padx=10)
 
     def _update_move_history(self) -> None:
-        """Update the scrollable move history display."""
         if hasattr(self, 'history_text'):
             self.history_text.config(state="normal")
             self.history_text.delete("1.0", "end")
 
-            if not self.move_history:
+            if self.move_history.is_empty():
                 self.history_text.insert("1.0", "No moves yet.")
             else:
-                for i, move in enumerate(self.move_history, 1):
+                for move in self.move_history.moves:
                     self.history_text.insert("end", f"{move}\n")
 
             self.history_text.config(state="disabled")
@@ -478,9 +497,9 @@ class GameController:
     def _apply_network_state(self, payload: dict) -> None:
         network_state = deserialize_state(payload)
         self.state = network_state.state
-        self.move_history = list(network_state.move_history)
-        self.captured_by_red = list(network_state.captured_by_red)
-        self.captured_by_black = list(network_state.captured_by_black)
+        self.move_history.moves = list(network_state.move_history)
+        self.move_history.captured_by_red = list(network_state.captured_by_red)
+        self.move_history.captured_by_black = list(network_state.captured_by_black)
         self.selected_square = None
         if network_state.status:
             self._set_status(network_state.status)
@@ -596,22 +615,7 @@ class GameController:
         captured_piece: Piece | None,
         actor: str,
     ) -> None:
-        move_number = len(self.move_history) + 1
-        capture_text = ""
-        if captured_piece is not None:
-            captured_code = piece_display_code(captured_piece)
-            capture_text = f" x {captured_code}"
-            if side is Side.RED:
-                self.captured_by_red.append(captured_code)
-            else:
-                self.captured_by_black.append(captured_code)
-        move_str = (
-            f"{move_number}. {actor} {self._side_label(side)}: "
-            f"({move.start[0]},{move.start[1]}) -> ({move.end[0]},{move.end[1]}){capture_text}"
-        )
-        self.move_history.append(move_str)
-
-        # Update scrollable history
+        self.move_history.record(side, move, captured_piece, actor, piece_display_code, self._side_label)
         self._update_move_history()
 
     def _schedule_ai_if_needed(self) -> None:
@@ -641,10 +645,10 @@ class GameController:
                 break
             record = self.state.move_history[-1]
             if record.captured_piece is not None:
-                self._remove_last_capture(record.previous_side_to_move)
+                self.move_history.remove_last_capture(record.previous_side_to_move)
             self.state.undo_move()
-            if self.move_history:
-                self.move_history.pop()
+            if self.move_history.moves:
+                self.move_history.moves.pop()
             undone += 1
 
         if undone == 0:
@@ -656,11 +660,6 @@ class GameController:
         self._set_status(f"Undid {undone} move(s).")
         self._redraw()
 
-    def _remove_last_capture(self, side: Side) -> None:
-        captures = self.captured_by_red if side is Side.RED else self.captured_by_black
-        if captures:
-            captures.pop()
-
     def _restart_game(self) -> None:
         if self.options.mode in {"lan_host", "lan_join"}:
             self._set_status("The LAN MVP does not support synchronized restart yet. Return to the menu and host/join again.")
@@ -670,8 +669,10 @@ class GameController:
         self.selected_square = None
         self.game_over = False
         self.move_history.clear()
-        self.captured_by_red.clear()
-        self.captured_by_black.clear()
+        self.timer.reset()
+        self.elo_red_var.set(str(self.elo.get_rating("red")))
+        self.elo_black_var.set(str(self.elo.get_rating("black")))
+        self.elo_delta_var.set("")
         self._set_status(self._initial_status())
         self._redraw()
         self._schedule_ai_if_needed()
@@ -713,10 +714,22 @@ class GameController:
             message = f"Checkmate. {self._side_label(winner)} wins."
         else:
             message = f"No legal moves remain. {self._side_label(winner)} wins."
-        self._set_status(message)
+
+        if winner is Side.RED:
+            change = self.elo.record_game("red", "black")
+            elo_msg = f"  ELO change: Red {change.player_delta:+d}, Black {change.opponent_delta:+d}"
+        else:
+            change = self.elo.record_game("black", "red")
+            elo_msg = f"  ELO change: Black {change.player_delta:+d}, Red {change.opponent_delta:+d}"
+        self.elo_red_var.set(str(self.elo.get_rating("red")))
+        self.elo_black_var.set(str(self.elo.get_rating("black")))
+        self.elo_delta_var.set(f"({change.player_delta:+d})")
+        self.root.after(3000, lambda: self.elo_delta_var.set(""))
+
+        self._set_status(message + elo_msg)
         self._redraw()
         if show_dialog:
-            messagebox.showinfo("Game Over", message)
+            messagebox.showinfo("Game Over", message + elo_msg)
         return True
 
     def _redraw(self) -> None:
@@ -742,9 +755,9 @@ class GameController:
         if in_check:
             turn += "\nCheck!"
         self.turn_var.set(turn)
-        self.history_var.set("\n".join(self.move_history[-10:]) if self.move_history else "No moves yet.")
-        red_captures = ", ".join(self.captured_by_red) if self.captured_by_red else "-"
-        black_captures = ", ".join(self.captured_by_black) if self.captured_by_black else "-"
+        self.history_var.set("\n".join(self.move_history.moves[-10:]) if self.move_history.moves else "No moves yet.")
+        red_captures = ", ".join(self.move_history.captured_by_red) if self.move_history.captured_by_red else "-"
+        black_captures = ", ".join(self.move_history.captured_by_black) if self.move_history.captured_by_black else "-"
         self.captured_var.set(f"Red captures: {red_captures}\nBlack captures: {black_captures}")
 
     def _mode_label(self) -> str:
@@ -777,70 +790,22 @@ class GameController:
         self.root.after(450, self._schedule_blink)
 
     def _schedule_timer_update(self) -> None:
-        """Schedule timer countdown updates."""
         if self._closed:
             return
         self._update_timer()
-        self.root.after(1000, self._schedule_timer_update)  # Update every second
+        self.root.after(1000, self._schedule_timer_update)
 
     def _update_timer(self) -> None:
-        """Update countdown timer for current player."""
-        import time
-
-        # Only count down if game is active and not waiting for AI
         if self._check_game_over(show_dialog=False):
             return
 
-        # Don't count down during AI thinking
         if self.options.mode == "ai" and self.state.side_to_move != self.options.human_side:
             return
 
-        # Initialize last update time
-        if self.last_timer_update is None:
-            self.last_timer_update = time.time()
-            self.timer_running = True
+        if self.timer.last_timer_update is None:
+            self.timer.start()
             return
 
-        # Calculate elapsed time
-        current_time = time.time()
-        elapsed = current_time - self.last_timer_update
-        self.last_timer_update = current_time
-
-        # Decrement timer for current player
-        if self.state.side_to_move == Side.RED:
-            self.red_time_seconds = max(0, self.red_time_seconds - elapsed)
-            self._update_timer_display(Side.RED)
-        else:
-            self.black_time_seconds = max(0, self.black_time_seconds - elapsed)
-            self._update_timer_display(Side.BLACK)
-
-        # Check for time out
-        if self.red_time_seconds <= 0:
-            self._set_status("Time out! Black wins!")
-        elif self.black_time_seconds <= 0:
-            self._set_status("Time out! Red wins!")
-
-    def _update_timer_display(self, side: Side) -> None:
-        """Update timer display and color based on remaining time."""
-        if side == Side.RED:
-            seconds = int(self.red_time_seconds)
-            minutes = seconds // 60
-            secs = seconds % 60
-            self.red_time_var.set(f"{minutes}:{secs:02d}")
-
-            # Change color if < 30 seconds
-            if self.red_timer_frame and seconds < 30:
-                self.red_timer_frame.config(bg="#b71c1c")  # Darker red (warning)
-            elif self.red_timer_frame:
-                self.red_timer_frame.config(bg="#d32f2f")  # Normal red
-        else:
-            seconds = int(self.black_time_seconds)
-            minutes = seconds // 60
-            secs = seconds % 60
-            self.black_time_var.set(f"{minutes}:{secs:02d}")
-
-            # Change color if < 30 seconds
-            if self.black_timer_frame and seconds < 30:
-                self.black_timer_frame.config(bg="#0d47a1")  # Darker blue (warning)
-            elif self.black_timer_frame:
-                self.black_timer_frame.config(bg="#1976D2")  # Normal blue
+        result = self.timer.update(self.state.side_to_move)
+        if result is not None:
+            self._set_status(result)

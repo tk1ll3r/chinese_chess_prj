@@ -1,0 +1,501 @@
+BÁO CÁO TIẾN ĐỘ ĐỒ ÁN - TUẦN 2
+(Đồ án phát triển ứng dụng)
+Lớp: IT003.Q21.CTTN
+
+SINH VIÊN THỰC HIỆN
+Mã sinh viên: 25521829
+Họ và tên: Nguyễn Văn Thương
+
+TÊN ĐỀ TÀI: GAME CỜ TƯỚNG & AI
+
+==================================================================
+1. GIỚI THIỆU ĐỒ ÁN
+==================================================================
+
+1.1. Mô tả chung về ứng dụng
+
+Đồ án hướng tới xây dựng một ứng dụng Cờ Tướng có khả năng quản lý trạng
+thái ván cờ, kiểm tra luật chơi, sinh nước đi hợp lệ và từng bước tích hợp
+AI để tự động lựa chọn nước đi. Trong giai đoạn tuần 2, trọng tâm chính của
+đồ án không nằm ở giao diện mà tập trung vào phần lõi xử lý trò chơi, vì đây
+là phần quyết định tính đúng đắn của toàn bộ hệ thống trong các giai đoạn sau.
+
+Từ cấu trúc mã nguồn hiện tại của project, hệ thống được tổ chức theo các
+module tương đối rõ ràng:
+- `chinese_chess_ai/engine/state.py`: quản lý trạng thái bàn cờ.
+- `chinese_chess_ai/engine/rules.py`: xử lý luật và sinh nước đi.
+- `chinese_chess_ai/ai/evaluate.py`: đánh giá trạng thái bàn cờ.
+- `chinese_chess_ai/ai/search.py`: chọn nước đi dựa trên heuristic search.
+- `tests/`: kiểm tra tính đúng đắn của logic.
+
+Trong tuần 2, phần nổi bật đã hoàn thiện là mô hình bàn cờ 10x9, dữ liệu quân
+cờ, cơ chế lịch sử nước đi, sinh nước đi giả hợp lệ, lọc nước đi hợp lệ, kiểm
+tra chiếu tướng, luật đối mặt tướng và bước đầu xây dựng nền heuristic cho AI.
+
+
+1.2. Mô tả công việc đã thực hiện
+
+- Hoàn thiện cấu trúc cơ bản của dự án, phân tách rõ các phần engine, AI,
+  giao diện, kiểm thử và tài liệu.
+- Hiện thực hóa các thành phần cốt lõi của engine gồm:
+  + khởi tạo bàn cờ,
+  + biểu diễn quân cờ,
+  + lưu trạng thái lượt đi,
+  + cập nhật trạng thái sau mỗi nước đi,
+  + hoàn tác nước đi.
+- Xây dựng bộ luật cơ bản cho từng quân cờ của Cờ Tướng: tướng, sĩ, tượng,
+  mã, xe, pháo, tốt.
+- Hoàn thiện cơ chế lọc nước đi hợp lệ bằng mô phỏng trạng thái sau nước đi
+  và kiểm tra điều kiện chiếu tướng hoặc đối mặt tướng.
+- Bước đầu triển khai hướng AI heuristic search thông qua hàm đánh giá bàn cờ
+  và khung chọn nước đi tối ưu.
+- Chuẩn hóa tài liệu báo cáo trên Overleaf.
+- Chuẩn hóa docstring trong mã nguồn để đồng bộ với phần báo cáo.
+- Đồng bộ mã nguồn tuần 2 lên Git để lưu vết tiến độ, thuận tiện đối chiếu
+  thay đổi và làm minh chứng phát triển đồ án.
+
+
+1.3. Các cấu trúc dữ liệu và giải thuật đã sử dụng
+
+1.3.1. Ma trận 2 chiều 10x9
+
+What:
+Sử dụng ma trận 2 chiều 10 hàng x 9 cột để biểu diễn bàn cờ.
+
+Why:
+Đây là cách biểu diễn trực tiếp nhất cho bàn cờ Tướng, giúp truy cập ô theo
+tọa độ `(row, col)` nhanh, đơn giản và dễ kiểm soát khi cài đặt luật đi quân.
+
+Vai trò trong project:
+- Hỗ trợ truy xuất quân tại một ô bất kỳ bằng thời gian hằng số.
+- Thuận tiện cho việc quét theo hàng, cột, hướng chéo và các tia tấn công.
+- Phù hợp với các hàm `piece_at`, `render_ascii`, `generate_legal_moves`.
+
+
+1.3.2. Kiểu dữ liệu có cấu trúc cho quân cờ và nước đi
+
+What:
+Sử dụng các kiểu dữ liệu như `Piece`, `Move`, `MoveRecord`, `GameState`.
+
+Why:
+Việc gom nhóm dữ liệu theo đúng ngữ nghĩa miền bài toán giúp mã rõ ràng hơn,
+tránh truyền dữ liệu rời rạc và thuận tiện khi mở rộng thêm logic AI.
+
+Vai trò trong project:
+- `Piece` lưu thông tin quân cờ.
+- `Move` lưu nước đi hiện tại.
+- `MoveRecord` lưu thông tin phục vụ hoàn tác.
+- `GameState` lưu toàn bộ trạng thái ván cờ.
+
+
+1.3.3. Danh sách động (List/Vector)
+
+What:
+Sử dụng danh sách động để lưu tập nước đi được sinh ra trong mỗi lượt.
+
+Why:
+Số lượng nước đi thay đổi tùy theo trạng thái bàn cờ nên danh sách động là
+lựa chọn phù hợp hơn cấu trúc kích thước cố định.
+
+Vai trò trong project:
+- Lưu danh sách pseudo-legal moves.
+- Lưu danh sách legal moves sau khi lọc.
+- Là đầu vào trực tiếp cho AI search và cho giao diện/console hiển thị.
+
+
+1.3.4. Ngăn xếp lịch sử nước đi (`move_history`)
+
+What:
+Sử dụng danh sách như một stack LIFO để lưu lịch sử nước đi.
+
+Why:
+AI tìm kiếm yêu cầu đánh thử một nước đi rồi quay lui về trạng thái ban đầu.
+Cấu trúc stack rất phù hợp cho mô hình `make_move` / `undo_move`.
+
+Vai trò trong project:
+- Hỗ trợ tính năng undo trong game.
+- Hỗ trợ backtracking trong tìm kiếm trạng thái.
+- Tránh phải tạo lại toàn bộ bàn cờ sau mỗi bước thử.
+
+
+1.3.5. Thuật toán sinh nước đi giả hợp lệ (Pseudo-Legal Move Generation)
+
+What:
+Sinh nước đi theo luật di chuyển của từng quân cờ.
+
+Why:
+Mỗi quân trong Cờ Tướng có quy tắc riêng, ví dụ:
+- Mã bị cản chân.
+- Tượng bị chặn mắt và không qua sông.
+- Pháo cần đúng một quân làm màn khi bắt.
+- Tướng và sĩ bị giới hạn trong cung.
+
+Vai trò trong project:
+- Là lớp xử lý đầu tiên trong quá trình tạo nước đi.
+- Tạo tập ứng viên trước khi lọc thành nước đi hợp lệ hoàn toàn.
+
+
+1.3.6. Thuật toán lọc nước đi hợp lệ (Legal Move Filtering)
+
+What:
+Dùng cơ chế mô phỏng trạng thái để loại bỏ các nước đi gây phạm luật.
+
+Why:
+Chỉ sinh nước đi theo quy tắc di chuyển là chưa đủ, vì còn phải kiểm tra các
+điều kiện như tự đưa tướng vào thế bị chiếu hoặc làm hai tướng đối mặt nhau.
+
+Vai trò trong project:
+- Gọi `make_move`.
+- Kiểm tra `is_in_check`.
+- Nếu hợp lệ thì giữ lại nước đi.
+- Sau đó gọi `undo_move` để khôi phục trạng thái.
+
+
+1.3.7. Thuật toán phát hiện đe dọa và chiếu tướng
+
+What:
+Sử dụng các hàm như `is_square_attacked`, `is_in_check`,
+`generals_face_each_other`.
+
+Why:
+Đây là nền tảng để xác định một trạng thái có hợp lệ hay không và để engine
+biết bên nào đang ở trong trạng thái nguy hiểm chiến thuật.
+
+Vai trò trong project:
+- Kiểm tra chiếu tướng.
+- Hỗ trợ lọc nước đi hợp lệ.
+- Hỗ trợ AI đánh giá những nhánh dẫn tới bí hoặc bất lợi.
+
+
+1.3.8. Hàm đánh giá heuristic
+
+What:
+Sử dụng `material_score`, `positional_score`, `evaluate_position`.
+
+Why:
+AI cần một tiêu chí số để đánh giá thế cờ hiện tại. Ở tuần 2, tiêu chí này
+được xây dựng theo hướng đơn giản nhưng hiệu quả:
+- giá trị quân cờ còn lại,
+- thưởng vị trí cho tốt khi qua sông.
+
+Vai trò trong project:
+- So sánh các trạng thái lá của cây tìm kiếm.
+- Làm nền cho việc chọn nước đi tối ưu của AI.
+
+
+1.3.9. Thuật toán tìm kiếm không gian trạng thái
+
+What:
+Project đã có khung `choose_move` và `negamax` kết hợp heuristic evaluation.
+
+Why:
+Để AI ra quyết định, hệ thống phải duyệt nhiều nhánh nước đi và đánh giá từng
+trạng thái tương lai thay vì chỉ phản ứng theo một luật cứng.
+
+Vai trò trong project:
+- Duyệt cây trò chơi.
+- Chọn nước đi tốt hơn dựa trên điểm đánh giá.
+- Chuẩn bị nền cho các cải tiến sâu hơn ở các tuần tiếp theo.
+
+
+==================================================================
+2. QUÁ TRÌNH THỰC HIỆN
+==================================================================
+
+2.1. Tuần 1
+
+- Tìm hiểu luật Cờ Tướng và xác định phạm vi kỹ thuật của đồ án.
+- Nghiên cứu hướng tổ chức kiến trúc tách engine, AI và giao diện.
+- Xác định các bài toán DSA cốt lõi cần xử lý trước:
+  + biểu diễn bàn cờ,
+  + sinh nước đi,
+  + kiểm tra tính hợp lệ,
+  + lưu lịch sử nước đi,
+  + đánh giá trạng thái.
+- Tạo khung project ban đầu và các file nền tảng.
+
+
+2.2. Tuần 2
+
+- Hoàn thiện mô hình trạng thái bàn cờ:
+  xây dựng lớp `GameState` để lưu bàn cờ, bên đi, vị trí tướng đỏ, vị trí
+  tướng đen và lịch sử nước đi.
+
+- Cài đặt thao tác chuyển trạng thái:
+  hoàn thiện `make_move` và `undo_move` để cập nhật và khôi phục bàn cờ.
+
+- Xây dựng rules engine cơ bản:
+  cài đặt sinh nước đi cho từng loại quân, bao gồm các ràng buộc đặc thù của
+  Cờ Tướng.
+
+- Lọc nước đi hợp lệ:
+  dùng mô phỏng trạng thái để loại bỏ các nước đi làm bên chơi vẫn bị chiếu
+  hoặc vi phạm luật hai tướng đối mặt.
+
+- Khởi tạo hướng AI heuristic search:
+  xây dựng `material_score`, `positional_score`, `evaluate_position` và khung
+  `choose_move` để AI có thể bắt đầu đánh giá thế cờ.
+
+- Kiểm thử các tình huống luật quan trọng:
+  bổ sung test cho mã cản chân, tượng bị chặn mắt, pháo ăn qua màn, kiểm tra
+  chiếu tướng và tính không làm hỏng trạng thái khi AI tìm kiếm.
+
+- Chuẩn hóa tài liệu:
+  cập nhật khung báo cáo Overleaf và đồng bộ nội dung với mã nguồn thực tế.
+
+- Đồng bộ mã nguồn lên Git:
+  thực hiện commit các hạng mục hoàn thành của tuần 2 để lưu lịch sử phát
+  triển và phục vụ báo cáo tiến độ.
+
+
+==================================================================
+3. KẾT QUẢ ĐẠT ĐƯỢC
+==================================================================
+
+3.1. Logic bàn cờ
+
+Đến hết tuần 2, phần logic bàn cờ đã hoạt động ổn định ở mức nền tảng.
+Hệ thống có thể:
+- khởi tạo bàn cờ đúng trạng thái ban đầu,
+- xác định quân cờ tại từng vị trí,
+- sinh được tập nước đi cho bên đang đi,
+- lọc được các nước đi phạm luật,
+- kiểm tra chiếu tướng và đối mặt tướng.
+
+
+3.2. Kết quả về AI đánh giá sơ bộ
+
+Hệ thống đã có khả năng chấm điểm trạng thái bàn cờ thông qua:
+- tương quan quân lực (`material_score`),
+- điểm vị trí đơn giản (`positional_score`),
+- hàm tổng hợp (`evaluate_position`).
+
+Điều này cho phép project tiến từ mức engine thuần sang mức engine có khả năng
+đánh giá chất lượng trạng thái để phục vụ chọn nước đi.
+
+
+3.3. Tốc độ xử lý và quyết định DSA
+
+Việc tổ chức trạng thái theo hướng `make_move` / `undo_move` thay vì sao chép
+toàn bộ bàn cờ cho mỗi lần thử là một quyết định DSA quan trọng. Cách này giúp:
+- tiết kiệm chi phí xử lý,
+- giảm overhead bộ nhớ,
+- phù hợp với AI search dựa trên backtracking.
+
+
+3.4. Đề xuất phần demo cần chụp màn hình
+
+Demo 1 - Logic bàn cờ:
+- Chọn một quân trong giao diện hoặc console.
+- Hiển thị các vị trí có thể đi hợp lệ.
+- Ưu tiên minh họa một trường hợp mã bị cản chân hoặc pháo ăn qua màn.
+
+Demo 2 - Hàm đánh giá:
+- Chạy chương trình ở chế độ tóm tắt hoặc log đánh giá.
+- Chụp điểm số trước và sau một nước bắt quân.
+- Minh họa hai nước đi khác nhau cho ra hai mức điểm khác nhau.
+
+Demo 3 - Quản lý phiên bản:
+- Chụp commit Git hoặc trạng thái repo để minh chứng việc lưu vết tiến độ.
+
+
+3.5. Tổng kết kết quả tuần 2
+
+- Đã hoàn thiện bộ khung cốt lõi của project.
+- Đã biểu diễn được bàn cờ và trạng thái ván cờ bằng cấu trúc dữ liệu phù hợp.
+- Đã cài đặt các luật di chuyển cơ bản cho từng quân cờ.
+- Đã kiểm tra được nước đi hợp lệ, chiếu tướng và đối mặt tướng.
+- Đã xây dựng được hàm đánh giá sơ bộ để phục vụ AI.
+- Đã chuẩn hóa docstring trong mã nguồn.
+- Đã cập nhật nội dung báo cáo và đồng bộ tiến độ lên Git.
+
+
+==================================================================
+4. CHUẨN HÓA DOCSTRING
+==================================================================
+
+Trong tuần 2, phần docstring được chuẩn hóa trực tiếp trong mã nguồn và đồng
+bộ lại vào tài liệu báo cáo. Mẫu docstring được thống nhất như sau:
+
+- def:
+  mô tả ngắn gọn chức năng của hàm hoặc lớp.
+
+- Role in System:
+  giải thích vai trò của thành phần đó trong tổng thể logic trò chơi.
+
+- Input/Output:
+  mô tả dữ liệu vào, dữ liệu ra và ý nghĩa tham số.
+
+- Author / Date / Ver:
+  ghi thông tin định danh và lịch sử cập nhật.
+
+Thông tin định danh sử dụng trong tuần 2:
+- Author: 25521829 - Nguyen Van Thuong
+- Date: 2026-04-29
+- Ver: 0.2
+
+
+==================================================================
+5. PHỤ LỤC DOCSTRING ĐƯA VÀO BÁO CÁO
+==================================================================
+
+5.1. Docstring của lớp `GameState`
+
+"""
+def: Lưu trữ toàn bộ trạng thái có thể thay đổi của một thế cờ.
+
+Role in System: Đóng vai trò mô hình trung tâm được chia sẻ giữa engine
+luật, AI tìm kiếm, kiểm thử và giao diện người dùng.
+
+Input/Output: Lưu `board`, `side_to_move`, vị trí hai tướng và
+`move_history`. Đối tượng sẽ bị thay đổi bởi các hàm áp dụng nước đi.
+
+Author: 25521829 - Nguyen Van Thuong
+Date: 2026-04-29
+Ver: 0.2
+"""
+
+
+5.2. Docstring của hàm `make_move`
+
+"""
+def: Áp dụng một nước đi lên trạng thái bàn cờ hiện tại.
+
+Role in System: Thực hiện chuyển trạng thái phục vụ gameplay, lọc
+nước đi hợp lệ và mở rộng cây tìm kiếm heuristic.
+
+Input/Output: Input là `move` dưới dạng `Move` đã được kiểm tra.
+Output là `None`; hàm sẽ thay đổi bàn cờ, vị trí tướng, bên đi và
+thêm một `MoveRecord` vào lịch sử.
+
+Author: 25521829 - Nguyen Van Thuong
+Date: 2026-04-29
+Ver: 0.2
+"""
+
+
+5.3. Docstring của hàm `undo_move`
+
+"""
+def: Hoàn tác nước đi vừa được thực hiện gần nhất.
+
+Role in System: Cho phép quay lui khi lọc nước đi hợp lệ và khi AI
+tìm kiếm mà không cần dựng lại toàn bộ bàn cờ từ đầu.
+
+Input/Output: Input là `self`. Output là `Move` vừa được hoàn tác,
+hoặc `None` nếu ngăn xếp lịch sử đang rỗng.
+
+Author: 25521829 - Nguyen Van Thuong
+Date: 2026-04-29
+Ver: 0.2
+"""
+
+
+5.4. Docstring của hàm `generate_legal_moves`
+
+"""
+def: Sinh danh sách nước đi hợp lệ hoàn toàn cho bên đang tới lượt.
+
+Role in System: Tạo ra danh sách nước đi chuẩn được dùng bởi CLI, GUI,
+test và AI search.
+
+Input/Output: Input là `state`. Output là danh sách `Move` còn hợp lệ
+sau khi đã lọc tự chiếu tướng và lỗi đối mặt tướng.
+
+Author: 25521829 - Nguyen Van Thuong
+Date: 2026-04-29
+Ver: 0.2
+"""
+
+
+5.5. Docstring của hàm `is_in_check`
+
+"""
+def: Kiểm tra tướng của một bên có đang bị chiếu hay không.
+
+Role in System: Xác nhận tính hợp lệ của bàn cờ sau một nước đi và cung
+cấp tín hiệu nguy hiểm chiến thuật cho engine và giao diện.
+
+Input/Output: Input là `state` và `side`. Output là `True` nếu tướng
+của bên đó đang bị tấn công hoặc hai tướng đang đối mặt.
+
+Author: 25521829 - Nguyen Van Thuong
+Date: 2026-04-29
+Ver: 0.2
+"""
+
+
+5.6. Docstring của hàm `material_score`
+
+"""
+def: Chấm điểm một thế cờ chỉ dựa trên tương quan quân lực.
+
+Role in System: Cung cấp heuristic cơ sở để so sánh các trạng thái ở
+giai đoạn đầu của AI search.
+
+Input/Output: Input là `state` và `perspective`. Output là số nguyên,
+trong đó giá trị dương có lợi cho `perspective`.
+
+Author: 25521829 - Nguyen Van Thuong
+Date: 2026-04-29
+Ver: 0.2
+"""
+
+
+5.7. Docstring của hàm `evaluate_position`
+
+"""
+def: Tính điểm heuristic tổng hợp cho một trạng thái bàn cờ.
+
+Role in System: Cung cấp hàm đánh giá tĩnh chính được dùng ở các lá của
+cây tìm kiếm và khi so sánh nhanh các nước đi ứng viên.
+
+Input/Output: Input là `state` và `perspective` tùy chọn. Output là số
+nguyên biểu diễn điểm đánh giá cho bên được chọn.
+
+Author: 25521829 - Nguyen Van Thuong
+Date: 2026-04-29
+Ver: 0.2
+"""
+
+
+5.8. Docstring của hàm `choose_move`
+
+"""
+def: Chọn nước đi hợp lệ tốt nhất cho trạng thái hiện tại.
+
+Role in System: Là điểm vào chính của AI, kết nối phần sinh nước đi,
+đánh giá heuristic và tìm kiếm trên cây trạng thái.
+
+Input/Output: Input là `state` và `config` tùy chọn. Output là `Move`
+được chọn cho `state.side_to_move`, hoặc `None` nếu không có nước đi hợp lệ.
+
+Author: 25521829 - Nguyen Van Thuong
+Date: 2026-04-29
+Ver: 0.2
+"""
+
+
+==================================================================
+6. TÀI LIỆU THAM KHẢO
+
+1. Repo tham khảo `Dylannni/ChineseChess_XiangQi`.
+2. Các ghi chú phân tích luật Cờ Tướng và thiết kế hệ thống trong quá trình
+   thực hiện đồ án.
+3. Mã nguồn hiện tại của project, đặc biệt là các module `engine` và `ai`.
+
+
+==================================================================
+7. GỢI Ý LỆNH CHẠY DEMO
+==================================================================
+
+- Kiểm tra nhanh trạng thái engine:
+  `python3 main.py summary`
+
+- Chạy chế độ console:
+  `python3 main.py cli`
+
+- Chạy bộ test minh chứng logic:
+  `python3 -m unittest tests.test_rules tests.test_state tests.test_search`
+
+hggggggggggg
