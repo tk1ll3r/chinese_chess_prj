@@ -158,6 +158,24 @@ class RulesEngineTests(unittest.TestCase):
 
         self.assertTrue(is_in_check(state, Side.RED))
 
+    def test_legal_moves_exclude_moves_that_do_not_escape_check(self) -> None:
+        state = GameState.from_placements(
+            [
+                (Side.BLACK, PieceKind.GENERAL, 0, 3),
+                (Side.BLACK, PieceKind.CHARIOT, 1, 4),
+                (Side.RED, PieceKind.GENERAL, 9, 4),
+                (Side.RED, PieceKind.SOLDIER, 6, 0),
+            ],
+            side_to_move=Side.RED,
+        )
+
+        pseudo_moves = move_set(state, legal=False)
+        legal_moves = move_set(state, legal=True)
+
+        self.assertTrue(is_in_check(state, Side.RED))
+        self.assertIn(((6, 0), (5, 0)), pseudo_moves)
+        self.assertNotIn(((6, 0), (5, 0)), legal_moves)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,10 @@
+{
+  "_comment": "Simple opening book for Chinese Chess - Common opening moves",
+  "_format": "position_key -> [(move_string, weight), ...]",
+
+  "RKABCPPPPP.........................................pppppcbakr_RED": [
+    ["(2,1)-(4,2)", 1.0],
+    ["(2,7)-(4,6)", 1.0],
+    ["(0,1)-(2,2)", 0.8]
+  ]
+}
