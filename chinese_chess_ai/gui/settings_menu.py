@@ -170,9 +170,7 @@ class SettingsMenu:
         if self.sound_manager:
             self.sound_manager.set_music_enabled(self.music_enabled_var.get())
             if self.music_enabled_var.get():
-                music_files = self.sound_manager.music_file_paths()
-                if music_files:
-                    self.sound_manager.play_music(music_files[0].name)
+                self.sound_manager.set_music_enabled(True)
             else:
                 self.sound_manager.stop_music()
 

@@ -32,9 +32,7 @@ class GameApp:
         self.show_main_menu()
 
     def _start_background_music(self) -> None:
-        music_files = self.sound_manager.music_file_paths()
-        if music_files:
-            self.sound_manager.play_music(music_files[0].name)
+        self.sound_manager.start_playlist()
 
     def show_main_menu(self) -> None:
         self._clear()

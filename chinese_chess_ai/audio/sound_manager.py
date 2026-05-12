@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Literal
 
 SoundType = Literal["move", "capture", "check", "checkmate", "select", "illegal", "button"]
 
+MUSIC_EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac"}
+
 
 class SoundManager:
-    """Manages game sound effects and background music."""
+    """Manages game sound effects and background music with playlist support."""
 
     def __init__(self, assets_dir: str | Path | None = None, enabled: bool = True):
         self.enabled = enabled
@@ -19,6 +23,9 @@ class SoundManager:
         self._music_enabled = True
         self._music_playing = False
         self._current_music: str | None = None
+        self._playlist: list[Path] = []
+        self._playlist_thread: threading.Thread | None = None
+        self._playlist_stop = threading.Event()
 
         if assets_dir is None:
             if getattr(sys, "frozen", False):
@@ -117,37 +124,37 @@ class SoundManager:
             return Path(sys._MEIPASS) / "assets" / "music"
         return Path(__file__).parent.parent.parent / "assets" / "music"
 
-    def play_music(self, file_name: str = "", loop: int = -1) -> None:
+    def music_file_paths(self) -> list[Path]:
+        music_dir = self.music_dir()
+        if not music_dir.exists():
+            return []
+        return sorted(
+            p for p in music_dir.iterdir()
+            if p.suffix.lower() in MUSIC_EXTENSIONS
+        )
+
+    def start_playlist(self) -> None:
+        """Start cycling through all music files in the assets/music directory."""
         if not self._pygame_available or not self._music_enabled:
             return
-        try:
-            import pygame
-            music_path = self.music_dir() / file_name if file_name else None
-            if music_path is not None and not music_path.exists():
-                return
-            if self._music_playing:
-                pygame.mixer.music.stop()
-                self._music_playing = False
-            if music_path is not None:
-                pygame.mixer.music.load(str(music_path))
-                pygame.mixer.music.set_volume(self.volume)
-                pygame.mixer.music.play(loop)
-                self._music_playing = True
-                self._current_music = file_name
-        except Exception:
-            pass
-
-    def play_music_list(self, file_names: list[str], loop: int = -1) -> None:
-        if not self._pygame_available or not self._music_enabled or not file_names:
+        self._playlist = self.music_file_paths()
+        if not self._playlist:
             return
-        self.play_music(file_names[0], loop)
+        self._stop_playlist_thread()
+        self._music_playing = True
+        self._playlist_stop.clear()
+        self._playlist_thread = threading.Thread(
+            target=self._playlist_worker, daemon=True
+        )
+        self._playlist_thread.start()
 
     def stop_music(self) -> None:
+        self._stop_playlist_thread()
         if not self._pygame_available:
             return
         try:
             import pygame
-            if self._music_playing:
+            if pygame.mixer.get_init():
                 pygame.mixer.music.stop()
                 self._music_playing = False
                 self._current_music = None
@@ -158,15 +165,34 @@ class SoundManager:
         self._music_enabled = enabled
         if not enabled:
             self.stop_music()
+        elif enabled and self._pygame_available:
+            self.start_playlist()
 
     def is_music_playing(self) -> bool:
         return self._music_playing
 
-    def music_file_paths(self) -> list[Path]:
-        music_dir = self.music_dir()
-        if not music_dir.exists():
-            return []
-        return sorted(
-            p for p in music_dir.iterdir()
-            if p.suffix.lower() in {".mp3", ".wav", ".ogg", ".flac"}
-        )
+    def _stop_playlist_thread(self) -> None:
+        self._music_playing = False
+        self._playlist_stop.set()
+        if self._playlist_thread is not None:
+            self._playlist_thread.join(timeout=2)
+            self._playlist_thread = None
+
+    def _playlist_worker(self) -> None:
+        import pygame
+        while not self._playlist_stop.is_set():
+            for music_path in self._playlist:
+                if self._playlist_stop.is_set():
+                    return
+                try:
+                    if not pygame.mixer.get_init():
+                        return
+                    pygame.mixer.music.load(str(music_path))
+                    pygame.mixer.music.set_volume(self.volume)
+                    pygame.mixer.music.play()
+                    self._current_music = music_path.name
+                    while pygame.mixer.music.get_busy():
+                        if self._playlist_stop.wait(0.5):
+                            return
+                except Exception:
+                    continue
