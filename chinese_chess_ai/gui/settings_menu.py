@@ -6,8 +6,6 @@ from typing import Callable
 
 
 class SettingsMenu:
-    """Settings menu for game configuration."""
-
     def __init__(
         self,
         root: tk.Tk,
@@ -17,8 +15,8 @@ class SettingsMenu:
         self.root = root
         self.on_back = on_back
         self.sound_manager = sound_manager
+        self._original_geometry = ""
 
-        # Configure window
         self.root.configure(bg="#f5f5f5")
         self.root.geometry("500x600")
 
@@ -27,11 +25,9 @@ class SettingsMenu:
         root.grid_rowconfigure(0, weight=1)
         root.grid_columnconfigure(0, weight=1)
 
-        # Center content
         content = tk.Frame(self.frame, bg="#f5f5f5")
         content.place(relx=0.5, rely=0.5, anchor="center")
 
-        # Title
         tk.Label(
             content,
             text="Settings",
@@ -40,7 +36,6 @@ class SettingsMenu:
             bg="#f5f5f5"
         ).pack(pady=(0, 30))
 
-        # Sound settings
         sound_frame = tk.Frame(content, bg="white", relief="solid", borderwidth=1)
         sound_frame.pack(pady=10, padx=20, fill="x")
 
@@ -52,7 +47,6 @@ class SettingsMenu:
             fg="#333333"
         ).pack(pady=(15, 10))
 
-        # Sound enabled checkbox
         self.sound_enabled_var = tk.BooleanVar(value=True)
         sound_check = tk.Checkbutton(
             sound_frame,
@@ -66,9 +60,8 @@ class SettingsMenu:
         )
         sound_check.pack(pady=5)
 
-        # Volume slider
         volume_frame = tk.Frame(sound_frame, bg="white")
-        volume_frame.pack(pady=(10, 15), padx=20, fill="x")
+        volume_frame.pack(pady=(10, 5), padx=20, fill="x")
 
         tk.Label(
             volume_frame,
@@ -94,7 +87,43 @@ class SettingsMenu:
         )
         volume_slider.pack(side="left", fill="x", expand=True)
 
-        # Animation settings
+        self.music_enabled_var = tk.BooleanVar(value=True)
+        music_check = tk.Checkbutton(
+            sound_frame,
+            text="Enable background music",
+            variable=self.music_enabled_var,
+            command=self._on_music_toggle,
+            font=("Arial", 10),
+            bg="white",
+            activebackground="white",
+            selectcolor="#e8f5e9"
+        )
+        music_check.pack(pady=(5, 15))
+
+        display_frame = tk.Frame(content, bg="white", relief="solid", borderwidth=1)
+        display_frame.pack(pady=10, padx=20, fill="x")
+
+        tk.Label(
+            display_frame,
+            text="Display",
+            font=("Arial", 12, "bold"),
+            bg="white",
+            fg="#333333"
+        ).pack(pady=(15, 10))
+
+        self.fullscreen_var = tk.BooleanVar(value=False)
+        fullscreen_check = tk.Checkbutton(
+            display_frame,
+            text="Fullscreen mode",
+            variable=self.fullscreen_var,
+            command=self._on_fullscreen_toggle,
+            font=("Arial", 10),
+            bg="white",
+            activebackground="white",
+            selectcolor="#e8f5e9"
+        )
+        fullscreen_check.pack(pady=(5, 15))
+
         anim_frame = tk.Frame(content, bg="white", relief="solid", borderwidth=1)
         anim_frame.pack(pady=10, padx=20, fill="x")
 
@@ -118,7 +147,6 @@ class SettingsMenu:
         )
         anim_check.pack(pady=(5, 15))
 
-        # Back button
         tk.Button(
             content,
             text="Back to Menu",
@@ -135,22 +163,38 @@ class SettingsMenu:
         ).pack(pady=(30, 0))
 
     def _on_sound_toggle(self) -> None:
-        """Handle sound enable/disable."""
         if self.sound_manager:
             self.sound_manager.set_enabled(self.sound_enabled_var.get())
 
+    def _on_music_toggle(self) -> None:
+        if self.sound_manager:
+            self.sound_manager.set_music_enabled(self.music_enabled_var.get())
+            if self.music_enabled_var.get():
+                music_files = self.sound_manager.music_file_paths()
+                if music_files:
+                    self.sound_manager.play_music(music_files[0].name)
+            else:
+                self.sound_manager.stop_music()
+
     def _on_volume_change(self, value: str) -> None:
-        """Handle volume change."""
         if self.sound_manager:
             self.sound_manager.set_volume(float(value))
 
+    def _on_fullscreen_toggle(self) -> None:
+        is_fullscreen = self.fullscreen_var.get()
+        if is_fullscreen:
+            self._original_geometry = self.root.geometry()
+            self.root.attributes("-fullscreen", True)
+        else:
+            self.root.attributes("-fullscreen", False)
+            if self._original_geometry:
+                self.root.geometry(self._original_geometry)
+
     def _on_back_clicked(self) -> None:
-        """Handle back button click."""
         if self.sound_manager:
             self.sound_manager.play_button()
         self.destroy()
         self.on_back()
 
     def destroy(self) -> None:
-        """Destroy the settings menu."""
         self.frame.destroy()

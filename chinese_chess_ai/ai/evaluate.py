@@ -115,7 +115,6 @@ def evaluate_position(state: GameState, perspective: Side | None = None) -> floa
     """
     side = perspective or state.side_to_move
 
-    # Combine all evaluation components
     material = material_score(state, side)
     positional = positional_score(state, side)
     mobility = mobility_score(state, side)

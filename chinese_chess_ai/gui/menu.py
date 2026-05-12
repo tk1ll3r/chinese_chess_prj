@@ -6,7 +6,7 @@ from tkinter import ttk
 
 from ..audio.sound_manager import SoundManager
 from ..engine.types import Side
-from ..network.room_code import normalize_room_code
+from ..network.room_code import generate_room_code, normalize_room_code
 from .fonts import configure_fonts
 from .game_controller import GameController, GameOptions
 from .settings_menu import SettingsMenu
@@ -28,28 +28,31 @@ class GameApp:
         self.current_settings: SettingsMenu | None = None
         self.menu_frame: tk.Frame | None = None
         self.sound_manager = SoundManager(enabled=True)
+        self._start_background_music()
         self.show_main_menu()
+
+    def _start_background_music(self) -> None:
+        music_files = self.sound_manager.music_file_paths()
+        if music_files:
+            self.sound_manager.play_music(music_files[0].name)
 
     def show_main_menu(self) -> None:
         self._clear()
+        self._start_background_music()
 
-        # Configure window
         self.root.configure(bg="#f5f5f5")
         self.root.geometry("500x600")
 
-        # Main container with gradient-like background
         frame = tk.Frame(self.root, bg="#f5f5f5")
         frame.grid(row=0, column=0, sticky="nsew")
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
 
-        # Center content frame
         content = tk.Frame(frame, bg="#f5f5f5")
         content.place(relx=0.5, rely=0.5, anchor="center")
 
         self.menu_frame = frame
 
-        # Title with Chinese characters
         title_frame = tk.Frame(content, bg="#f5f5f5")
         title_frame.pack(pady=(0, 40))
 
@@ -68,7 +71,6 @@ class GameApp:
             bg="#f5f5f5"
         ).pack()
 
-        # Menu buttons with modern style
         button_style = {
             "font": ("Arial", 12),
             "width": 25,
@@ -78,7 +80,6 @@ class GameApp:
             "borderwidth": 0,
         }
 
-        # Local game button
         btn_local = tk.Button(
             content,
             text="Local Two Players",
@@ -91,7 +92,6 @@ class GameApp:
         )
         btn_local.pack(pady=8)
 
-        # AI button
         btn_ai = tk.Button(
             content,
             text="Play vs AI",
@@ -104,7 +104,6 @@ class GameApp:
         )
         btn_ai.pack(pady=8)
 
-        # LAN button
         btn_lan = tk.Button(
             content,
             text="LAN Multiplayer",
@@ -117,7 +116,6 @@ class GameApp:
         )
         btn_lan.pack(pady=8)
 
-        # Settings button
         btn_settings = tk.Button(
             content,
             text="Settings",
@@ -130,7 +128,6 @@ class GameApp:
         )
         btn_settings.pack(pady=8)
 
-        # Exit button
         btn_exit = tk.Button(
             content,
             text="Exit",
@@ -143,7 +140,6 @@ class GameApp:
         )
         btn_exit.pack(pady=(20, 0))
 
-        # Footer
         tk.Label(
             content,
             text="v2.0 Enhanced Edition",
@@ -155,7 +151,6 @@ class GameApp:
     def show_ai_menu(self) -> None:
         self._clear()
 
-        # Configure window
         self.root.configure(bg="#f5f5f5")
         self.root.geometry("500x600")
 
@@ -164,11 +159,9 @@ class GameApp:
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
 
-        # Center content
         content = tk.Frame(frame, bg="#f5f5f5")
         content.place(relx=0.5, rely=0.5, anchor="center")
 
-        # Title
         tk.Label(
             content,
             text="Play vs AI",
@@ -180,7 +173,6 @@ class GameApp:
         side_var = tk.StringVar(value="Red")
         difficulty_var = tk.StringVar(value="Medium")
 
-        # Side selection
         side_frame = tk.Frame(content, bg="white", relief="solid", borderwidth=1)
         side_frame.pack(pady=10, padx=20, fill="x")
 
@@ -232,7 +224,6 @@ class GameApp:
         )
         btn_black.pack(side="left", padx=5)
 
-        # Difficulty selection
         diff_frame = tk.Frame(content, bg="white", relief="solid", borderwidth=1)
         diff_frame.pack(pady=10, padx=20, fill="x")
 
@@ -310,7 +301,6 @@ class GameApp:
                 )
             )
 
-        # Action buttons
         btn_frame = tk.Frame(content, bg="#f5f5f5")
         btn_frame.pack(pady=(30, 0))
 
@@ -347,7 +337,6 @@ class GameApp:
     def show_lan_menu(self) -> None:
         self._clear()
 
-        # Configure window
         self.root.configure(bg="#f5f5f5")
         self.root.geometry("500x600")
 
@@ -356,11 +345,9 @@ class GameApp:
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
 
-        # Center content
         content = tk.Frame(frame, bg="#f5f5f5")
         content.place(relx=0.5, rely=0.5, anchor="center")
 
-        # Title
         tk.Label(
             content,
             text="LAN Multiplayer",
@@ -369,7 +356,6 @@ class GameApp:
             bg="#f5f5f5"
         ).pack(pady=(0, 20))
 
-        # Info box
         info_frame = tk.Frame(content, bg="#e3f2fd", relief="solid", borderwidth=1)
         info_frame.pack(pady=10, padx=20, fill="x")
 
@@ -393,7 +379,6 @@ class GameApp:
         room_code_var = tk.StringVar(value="")
         error_var = tk.StringVar(value="")
 
-        # Room code input
         input_frame = tk.Frame(content, bg="white", relief="solid", borderwidth=1)
         input_frame.pack(pady=10, padx=20, fill="x")
 
@@ -416,7 +401,6 @@ class GameApp:
         )
         entry.pack(pady=(5, 15), padx=20, fill="x")
 
-        # Error label
         error_label = tk.Label(
             content,
             textvariable=error_var,
@@ -429,12 +413,12 @@ class GameApp:
 
         def host_game() -> None:
             error_var.set("")
+            room_code = generate_room_code()
             messagebox.showinfo(
-                "Create Room",
-                "A short room code will be generated after the room starts.\n"
-                "Share that code with the other player.",
+                "Room Created",
+                f"Your room code is:\n\n{room_code}\n\nShare this code with the other player.",
             )
-            self.start_game(GameOptions(mode="lan_host"))
+            self.start_game(GameOptions(mode="lan_host", room_code=room_code))
 
         def join_game() -> None:
             try:
@@ -445,7 +429,6 @@ class GameApp:
             error_var.set("")
             self.start_game(GameOptions(mode="lan_join", room_code=room_code))
 
-        # Action buttons
         btn_frame = tk.Frame(content, bg="#f5f5f5")
         btn_frame.pack(pady=(20, 0))
 
@@ -495,7 +478,6 @@ class GameApp:
         ).pack(pady=(15, 0))
 
     def show_settings_menu(self) -> None:
-        """Show settings menu."""
         self._clear()
         self.current_settings = SettingsMenu(
             self.root,
@@ -504,6 +486,7 @@ class GameApp:
         )
 
     def start_game(self, options: GameOptions) -> None:
+        self.sound_manager.stop_music()
         self._clear()
         self.current_controller = GameController(
             self.root,

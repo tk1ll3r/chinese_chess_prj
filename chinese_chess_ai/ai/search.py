@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from math import inf
 from typing import Literal
@@ -13,6 +14,7 @@ from .evaluate import evaluate_position
 
 MATE_SCORE = 1_000_000
 QUIESCENCE_MAX_DEPTH = 4
+NOISE_SCALE = 0.001
 StateKey = tuple[object, tuple[tuple[object | None, ...], ...]]
 
 
@@ -282,7 +284,7 @@ def _evaluate_leaf(state: GameState, legal_moves: list[Move]) -> float:
     """
     if not legal_moves:
         return -MATE_SCORE
-    return float(evaluate_position(state))
+    return float(evaluate_position(state)) + random.random() * NOISE_SCALE
 
 
 def _ordered_moves(

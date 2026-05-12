@@ -472,10 +472,11 @@ class GameController:
                 self.room_code = str(payload)
                 self._set_status(f"Room created. Share code: {self.room_code}")
                 self._redraw()
-                messagebox.showinfo(
-                    "Room Created",
-                    f"Share this room code with the other player:\n\n{self.room_code}",
-                )
+                if self.room_code != self.options.room_code:
+                    messagebox.showinfo(
+                        "Room Created",
+                        f"Share this room code with the other player:\n\n{self.room_code}",
+                    )
             elif event_type == "status":
                 self._set_status(str(payload))
             elif event_type == "error":
@@ -732,6 +733,15 @@ class GameController:
             messagebox.showinfo("Game Over", message + elo_msg)
         return True
 
+    def _should_flip_board(self) -> bool:
+        if self.options.mode == "local":
+            return False
+        if self.options.mode == "ai":
+            return self.options.human_side == Side.BLACK
+        if self.options.mode in {"lan_host", "lan_join"}:
+            return self.local_side == Side.BLACK
+        return False
+
     def _redraw(self) -> None:
         in_check = is_in_check(self.state, self.state.side_to_move)
         checked_square = (
@@ -744,6 +754,7 @@ class GameController:
             checked_square=checked_square,
             check_blink_on=self.check_blink_on,
             banner="Check!" if in_check else "",
+            flip=self._should_flip_board(),
         )
         self._refresh_sidebar(in_check)
 
