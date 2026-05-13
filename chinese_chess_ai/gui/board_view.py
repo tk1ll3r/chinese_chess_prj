@@ -152,7 +152,7 @@ class BoardView:
             pass
 
     def configure_scale(self, scale_factor: int) -> None:
-        self.scale_factor = max(1, min(scale_factor, 4))
+        self.scale_factor = max(1, scale_factor)
         self.board_width = BASE_BOARD_WIDTH * self.scale_factor
         self.board_height = BASE_BOARD_HEIGHT * self.scale_factor
         self.cell_size = BASE_CELL_SIZE * self.scale_factor
@@ -273,6 +273,7 @@ class BoardView:
             center_y + radius,
             outline=outline,
             width=width,
+            tags="check_oval",
         )
 
     def _draw_banner(self, banner: str) -> None:
@@ -402,6 +403,25 @@ class BoardView:
             self.canvas.after(duration_ms // max_frames, lambda: flash_frame(frame + 1, max_frames))
 
         flash_frame(0)
+
+    def update_check_highlight(self, position: Position, blink_on: bool) -> None:
+        self.canvas.delete("check_oval")
+        r = _flip_coord(position[0]) if self.flip_board else position[0]
+        center_x, center_y = self._scaled_board_point((r, position[1]))
+        base_radius = max(18 * self.scale_factor, self.piece_image_size // 2)
+        pulse_factor = 1.05 if blink_on else 0.95
+        radius = int(base_radius * pulse_factor)
+        outline = "#d60000" if blink_on else "#ff6666"
+        width = max(3, 3 * self.scale_factor)
+        self.canvas.create_oval(
+            center_x - radius,
+            center_y - radius,
+            center_x + radius,
+            center_y + radius,
+            outline=outline,
+            width=width,
+            tags="check_oval",
+        )
 
     def is_animating(self) -> bool:
         return self._animating

@@ -65,18 +65,19 @@ def create_board_from_placements(placements: list[Placement] | tuple[Placement, 
 
 @dataclass(slots=True)
 class GameState:
-    """def: Lưu trữ toàn bộ trạng thái có thể thay đổi của một thế cờ.
-
-    Role in System: Đóng vai trò mô hình trung tâm được chia sẻ giữa engine
-    luật, AI tìm kiếm, kiểm thử và giao diện người dùng.
-    Input/Output: Lưu `board`, `side_to_move`, vị trí hai tướng và
-    `move_history`. Đối tượng sẽ bị thay đổi bởi các hàm áp dụng nước đi.
-    """
     board: Board
     side_to_move: Side = Side.RED
     red_general_position: Position = (9, 4)
     black_general_position: Position = (0, 4)
     move_history: list[MoveRecord] = field(default_factory=list)
+    position_history: list[tuple[Side, tuple]] = field(default_factory=list)
+    halfmove_clock: int = 0
+
+    def _board_key(self) -> tuple:
+        return tuple(tuple(row) for row in self.board)
+
+    def _state_sig(self) -> tuple[Side, tuple]:
+        return (self.side_to_move, self._board_key())
 
     @classmethod
     def initial(cls) -> "GameState":
@@ -124,19 +125,14 @@ class GameState:
         )
 
     def clone(self) -> "GameState":
-        """def: Tạo một bản sao tách biệt của trạng thái hiện tại.
-
-        Role in System: Cung cấp một ảnh chụp an toàn khi nơi gọi cần một
-        trạng thái khác có thể thay đổi độc lập.
-        Input/Output: Input là `self`. Output là một `GameState` mới với dữ
-        liệu bàn cờ, lượt đi và lịch sử nước đi đã được sao chép.
-        """
         return GameState(
             board=deepcopy(self.board),
             side_to_move=self.side_to_move,
             red_general_position=self.red_general_position,
             black_general_position=self.black_general_position,
             move_history=list(self.move_history),
+            position_history=list(self.position_history),
+            halfmove_clock=self.halfmove_clock,
         )
 
     def piece_at(self, position: Position) -> Piece | None:
@@ -212,6 +208,11 @@ class GameState:
 
         self.side_to_move = self.side_to_move.opponent()
         self.move_history.append(record)
+        self.position_history.append(self._state_sig())
+        if captured_piece is not None or moved_piece.kind is PieceKind.SOLDIER:
+            self.halfmove_clock = 0
+        else:
+            self.halfmove_clock += 1
 
     def undo_move(self) -> Move | None:
         """def: Hoàn tác nước đi vừa được thực hiện gần nhất.
@@ -233,7 +234,20 @@ class GameState:
         self.side_to_move = record.previous_side_to_move
         self.red_general_position = record.previous_red_general
         self.black_general_position = record.previous_black_general
+        if self.position_history:
+            self.position_history.pop()
+        self.halfmove_clock = self._recalc_halfmove()
         return record.move
+
+    def _recalc_halfmove(self) -> int:
+        count = 0
+        for rec in reversed(self.move_history):
+            piece = rec.moved_piece
+            captured = rec.captured_piece
+            if captured is not None or piece.kind is PieceKind.SOLDIER:
+                break
+            count += 1
+        return count
 
     def iter_pieces(self, side: Side | None = None):
         """def: Duyệt qua toàn bộ quân cờ, có thể lọc theo từng bên.
@@ -272,3 +286,14 @@ class GameState:
         for row in self.board:
             lines.append(" ".join(piece.short_code() if piece else "__" for piece in row))
         return "\n".join(lines)
+
+    def is_threefold_repetition(self) -> bool:
+        sig = self._state_sig()
+        count = sum(1 for past_sig in self.position_history if past_sig == sig)
+        return count >= 2
+
+    def is_fifty_move_rule(self) -> bool:
+        return self.halfmove_clock >= 100
+
+    def is_draw(self) -> bool:
+        return self.is_threefold_repetition() or self.is_fifty_move_rule()

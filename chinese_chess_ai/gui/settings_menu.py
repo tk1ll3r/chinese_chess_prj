@@ -4,6 +4,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
+from .background import BackgroundImage, install_background
+
 
 class SettingsMenu:
     def __init__(
@@ -16,14 +18,16 @@ class SettingsMenu:
         self.on_back = on_back
         self.sound_manager = sound_manager
         self._original_geometry = ""
+        self._background: BackgroundImage | None = None
 
-        self.root.configure(bg="#f5f5f5")
+        self.root.configure(bg="#1f1f1f")
         self.root.geometry("500x600")
 
-        self.frame = tk.Frame(root, bg="#f5f5f5")
+        self.frame = tk.Frame(root, bg="#1f1f1f")
         self.frame.grid(row=0, column=0, sticky="nsew")
         root.grid_rowconfigure(0, weight=1)
         root.grid_columnconfigure(0, weight=1)
+        self._background = install_background(self.frame, fallback="#1f1f1f")
 
         content = tk.Frame(self.frame, bg="#f5f5f5")
         content.place(relx=0.5, rely=0.5, anchor="center")
@@ -59,6 +63,19 @@ class SettingsMenu:
             selectcolor="#e8f5e9"
         )
         sound_check.pack(pady=5)
+
+        test_btn = tk.Button(
+            sound_frame,
+            text="Test Sound",
+            command=self._on_test_sound,
+            font=("Arial", 9),
+            bg="#4CAF50",
+            fg="white",
+            relief="flat",
+            cursor="hand2",
+            padx=10
+        )
+        test_btn.pack(pady=(0, 5))
 
         volume_frame = tk.Frame(sound_frame, bg="white")
         volume_frame.pack(pady=(10, 5), padx=20, fill="x")
@@ -166,13 +183,15 @@ class SettingsMenu:
         if self.sound_manager:
             self.sound_manager.set_enabled(self.sound_enabled_var.get())
 
+    def _on_test_sound(self) -> None:
+        if self.sound_manager:
+            self.sound_manager.play_button()
+            self.root.after(200, self.sound_manager.play_select)
+            self.root.after(400, self.sound_manager.play_move)
+
     def _on_music_toggle(self) -> None:
         if self.sound_manager:
             self.sound_manager.set_music_enabled(self.music_enabled_var.get())
-            if self.music_enabled_var.get():
-                self.sound_manager.set_music_enabled(True)
-            else:
-                self.sound_manager.stop_music()
 
     def _on_volume_change(self, value: str) -> None:
         if self.sound_manager:

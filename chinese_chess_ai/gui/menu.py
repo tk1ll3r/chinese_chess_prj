@@ -3,13 +3,30 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
+from typing import Callable
 
 from ..audio.sound_manager import SoundManager
 from ..engine.types import Side
 from ..network.room_code import generate_room_code, normalize_room_code
+from .background import (
+    BACKGROUND_IMAGE_NAME,
+    FIRST_IMAGE_NAME,
+    BackgroundImage,
+    assets_dir,
+    create_cover_photo,
+    install_background,
+)
 from .fonts import configure_fonts
 from .game_controller import GameController, GameOptions
 from .settings_menu import SettingsMenu
+
+try:
+    from PIL import Image, ImageOps, ImageTk, ImageEnhance
+except Exception:
+    Image = None
+    ImageOps = None
+    ImageTk = None
+    ImageEnhance = None
 
 
 def launch_gui() -> None:
@@ -22,143 +39,208 @@ def launch_gui() -> None:
 class GameApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Chinese Chess")
+        self.root.title("Đại hải trình")
         self.root.resizable(True, True)
         self.current_controller: GameController | None = None
         self.current_settings: SettingsMenu | None = None
         self.menu_frame: tk.Frame | None = None
+        self.menu_background: BackgroundImage | None = None
+        self._canvas_photo: tk.PhotoImage | None = None
+        self._khung_src = None
+        self._khung_photos: dict[int, tuple] = {}
+        self._hovered_index: int | None = None
         self.sound_manager = SoundManager(enabled=True)
-        self._start_background_music()
-        self.show_main_menu()
-
-    def _start_background_music(self) -> None:
         self.sound_manager.start_playlist()
+        self.show_splash()
 
-    def show_main_menu(self) -> None:
+    def show_splash(self) -> None:
         self._clear()
-        self._start_background_music()
+        self.root.configure(bg="#000000")
+        self.root.geometry("900x540")
 
-        self.root.configure(bg="#f5f5f5")
-        self.root.geometry("500x600")
-
-        frame = tk.Frame(self.root, bg="#f5f5f5")
+        frame = tk.Frame(self.root, bg="#000000")
         frame.grid(row=0, column=0, sticky="nsew")
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
 
-        content = tk.Frame(frame, bg="#f5f5f5")
-        content.place(relx=0.5, rely=0.5, anchor="center")
-
+        canvas = tk.Canvas(frame, bd=0, highlightthickness=0, bg="#000000", cursor="hand2")
+        canvas.grid(row=0, column=0, sticky="nsew")
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
         self.menu_frame = frame
 
-        title_frame = tk.Frame(content, bg="#f5f5f5")
-        title_frame.pack(pady=(0, 40))
+        def draw(_event: tk.Event[tk.Canvas] | None = None) -> None:
+            width = max(1, canvas.winfo_width())
+            height = max(1, canvas.winfo_height())
+            canvas.delete("all")
+            self._canvas_photo = create_cover_photo(FIRST_IMAGE_NAME, (width, height))
+            if self._canvas_photo is not None:
+                canvas.create_image(0, 0, image=self._canvas_photo, anchor="nw")
+            else:
+                canvas.create_rectangle(0, 0, width, height, fill="#000000", outline="")
 
-        tk.Label(
-            title_frame,
-            text="Chinese Chess",
-            font=("Arial", 48, "bold"),
-            fg="#8B4513",
-            bg="#f5f5f5"
-        ).pack()
-        tk.Label(
-            title_frame,
-            text="Xiangqi Game",
-            font=("Arial", 16),
-            fg="#666666",
-            bg="#f5f5f5"
-        ).pack()
+        canvas.bind("<Configure>", draw)
+        canvas.bind("<Button-1>", lambda _event: self.show_main_menu())
+        self.root.bind("<Return>", lambda _event: self.show_main_menu())
+        self.root.bind("<space>", lambda _event: self.show_main_menu())
+        self.root.after_idle(draw)
 
-        button_style = {
-            "font": ("Arial", 12),
-            "width": 25,
-            "height": 2,
-            "relief": "flat",
-            "cursor": "hand2",
-            "borderwidth": 0,
-        }
+    def _build_menu_shell(self) -> tuple[tk.Frame, tk.Frame]:
+        self.root.configure(bg="#1f1f1f")
+        self.root.geometry("500x600")
 
-        btn_local = tk.Button(
-            content,
-            text="Local Two Players",
-            command=lambda: self.start_game(GameOptions(mode="local")),
-            bg="#4CAF50",
-            fg="white",
-            activebackground="#45a049",
-            activeforeground="white",
-            **button_style
+        frame = tk.Frame(self.root, bg="#1f1f1f")
+        frame.grid(row=0, column=0, sticky="nsew")
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+        self.menu_background = install_background(frame, fallback="#1f1f1f")
+
+        content = tk.Frame(frame, bg="#f5f5f5")
+        content.place(relx=0.5, rely=0.5, anchor="center")
+        self.menu_frame = frame
+        return frame, content
+
+    def show_main_menu(self) -> None:
+        self._clear()
+        self.sound_manager.set_volume(0.5)
+        self.sound_manager.start_playlist()
+        self._khung_photos.clear()
+        self._hovered_index = None
+        if Image is not None:
+            kp = assets_dir() / "khung.jpg"
+            if kp.exists():
+                try:
+                    self._khung_src = Image.open(kp).convert("RGBA")
+                except Exception:
+                    self._khung_src = None
+
+        self.root.configure(bg="#1f1f1f")
+        self.root.geometry("900x540")
+
+        frame = tk.Frame(self.root, bg="#1f1f1f")
+        frame.grid(row=0, column=0, sticky="nsew")
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+
+        canvas = tk.Canvas(frame, bd=0, highlightthickness=0, bg="#1f1f1f")
+        canvas.grid(row=0, column=0, sticky="nsew")
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+        self.menu_frame = frame
+
+        buttons: tuple[tuple[str, str, Callable[[], None]], ...] = (
+            ("Local Two Players", "#2e7d32", lambda: self.start_game(GameOptions(mode="local"))),
+            ("Play vs AI", "#1565c0", self.show_ai_menu),
+            ("LAN Multiplayer", "#ef6c00", self.show_lan_menu),
+            ("Settings", "#7b1fa2", self.show_settings_menu),
+            ("Exit", "#b71c1c", self.root.destroy),
         )
-        btn_local.pack(pady=8)
 
-        btn_ai = tk.Button(
-            content,
-            text="Play vs AI",
-            command=self.show_ai_menu,
-            bg="#2196F3",
-            fg="white",
-            activebackground="#1976D2",
-            activeforeground="white",
-            **button_style
-        )
-        btn_ai.pack(pady=8)
+        def draw(_event: tk.Event[tk.Canvas] | None = None) -> None:
+            width = max(1, canvas.winfo_width())
+            height = max(1, canvas.winfo_height())
+            canvas.delete("all")
+            self._canvas_photo = create_cover_photo(BACKGROUND_IMAGE_NAME, (width, height))
+            if self._canvas_photo is not None:
+                canvas.create_image(0, 0, image=self._canvas_photo, anchor="nw")
+            else:
+                canvas.create_rectangle(0, 0, width, height, fill="#1f1f1f", outline="")
 
-        btn_lan = tk.Button(
-            content,
-            text="LAN Multiplayer",
-            command=self.show_lan_menu,
-            bg="#FF9800",
-            fg="white",
-            activebackground="#F57C00",
-            activeforeground="white",
-            **button_style
-        )
-        btn_lan.pack(pady=8)
+            title_y = max(72, int(height * 0.16))
+            try:
+                tf = ("Times New Roman", 52, "bold")
+                sf = ("Times New Roman", 26, "bold")
+            except Exception:
+                tf = ("Arial", 52, "bold")
+                sf = ("Arial", 26, "bold")
+            canvas.create_text(
+                width // 2 + 2, title_y + 2,
+                text="Đại hải trình",
+                fill="#555555",
+                font=tf,
+            )
+            canvas.create_text(
+                width // 2, title_y,
+                text="Đại hải trình",
+                fill="#ffffff",
+                font=tf,
+            )
+            canvas.create_text(
+                width // 2, title_y + 60,
+                text="Van Thuong",
+                fill="#ffffff",
+                font=sf,
+            )
 
-        btn_settings = tk.Button(
-            content,
-            text="Settings",
-            command=self.show_settings_menu,
-            bg="#9C27B0",
-            fg="white",
-            activebackground="#7B1FA2",
-            activeforeground="white",
-            **button_style
-        )
-        btn_settings.pack(pady=8)
 
-        btn_exit = tk.Button(
-            content,
-            text="Exit",
-            command=self.root.destroy,
-            bg="#f44336",
-            fg="white",
-            activebackground="#d32f2f",
-            activeforeground="white",
-            **button_style
-        )
-        btn_exit.pack(pady=(20, 0))
+            button_width = min(330, max(250, int(width * 0.42)))
+            button_height = 46
+            gap = 13
+            total_height = (button_height * len(buttons)) + (gap * (len(buttons) - 1))
+            start_y = max(title_y + 92, (height - total_height) // 2 + 38)
+            left = (width - button_width) // 2
 
-        tk.Label(
-            content,
-            text="v2.0 Enhanced Edition",
-            font=("Arial", 9),
-            fg="#999999",
-            bg="#f5f5f5"
-        ).pack(pady=(30, 0))
+            for index, (label, color, command) in enumerate(buttons):
+                top = start_y + (index * (button_height + gap))
+                tag = f"menu_button_{index}"
+                img_tag = f"btn_img_{index}"
+                txt_tag = f"btn_txt_{index}"
+
+                use_khung = self._khung_src is not None and Image is not None
+                if use_khung:
+                    try:
+                        fitted = ImageOps.fit(self._khung_src, (button_width, button_height), method=Image.Resampling.LANCZOS)
+                        normal = ImageTk.PhotoImage(fitted)
+                        bright = ImageEnhance.Brightness(fitted).enhance(1.25)
+                        hover = ImageTk.PhotoImage(bright)
+                        self._khung_photos[index] = (normal, hover)
+                        img = hover if self._hovered_index == index else normal
+                        canvas.create_image(left, top + 1, image=img, anchor="nw", tags=(tag, img_tag))
+                    except Exception:
+                        use_khung = False
+                if not use_khung:
+                    canvas.create_rectangle(left, top, left + button_width, top + button_height,
+                                            fill=color, outline="#ffe0a3", width=2, tags=(tag,))
+
+                canvas.create_text(
+                    width // 2, top + (button_height // 2),
+                    text=label,
+                    fill="#3e2723" if use_khung else "#ffffff",
+                    font=("Georgia", 13, "bold") if use_khung else ("Arial", 13, "bold"),
+                    tags=(tag, txt_tag),
+                )
+
+                canvas.tag_bind(tag, "<Button-1>", lambda _event, cmd=command: cmd())
+                canvas.tag_bind(tag, "<Enter>", lambda _event, idx=index: self._on_btn_enter(idx, canvas))
+                canvas.tag_bind(tag, "<Leave>", lambda _event, idx=index: self._on_btn_leave(idx, canvas))
+
+            canvas.create_text(
+                width // 2,
+                min(height - 24, start_y + total_height + 34),
+                text="v2.0 Enhanced Edition",
+                fill="#f8f1dc",
+                font=("Arial", 9),
+            )
+
+        canvas.bind("<Configure>", draw)
+        self.root.after_idle(draw)
+
+    def _on_btn_enter(self, idx: int, canvas: tk.Canvas) -> None:
+        self._hovered_index = idx
+        canvas.config(cursor="hand2")
+        if idx in self._khung_photos:
+            canvas.itemconfig(f"btn_img_{idx}", image=self._khung_photos[idx][1])
+
+    def _on_btn_leave(self, idx: int, canvas: tk.Canvas) -> None:
+        self._hovered_index = None
+        canvas.config(cursor="")
+        if idx in self._khung_photos:
+            canvas.itemconfig(f"btn_img_{idx}", image=self._khung_photos[idx][0])
 
     def show_ai_menu(self) -> None:
         self._clear()
 
-        self.root.configure(bg="#f5f5f5")
-        self.root.geometry("500x600")
-
-        frame = tk.Frame(self.root, bg="#f5f5f5")
-        frame.grid(row=0, column=0, sticky="nsew")
-        self.root.grid_rowconfigure(0, weight=1)
-        self.root.grid_columnconfigure(0, weight=1)
-
-        content = tk.Frame(frame, bg="#f5f5f5")
-        content.place(relx=0.5, rely=0.5, anchor="center")
+        _frame, content = self._build_menu_shell()
 
         tk.Label(
             content,
@@ -335,16 +417,7 @@ class GameApp:
     def show_lan_menu(self) -> None:
         self._clear()
 
-        self.root.configure(bg="#f5f5f5")
-        self.root.geometry("500x600")
-
-        frame = tk.Frame(self.root, bg="#f5f5f5")
-        frame.grid(row=0, column=0, sticky="nsew")
-        self.root.grid_rowconfigure(0, weight=1)
-        self.root.grid_columnconfigure(0, weight=1)
-
-        content = tk.Frame(frame, bg="#f5f5f5")
-        content.place(relx=0.5, rely=0.5, anchor="center")
+        _frame, content = self._build_menu_shell()
 
         tk.Label(
             content,
@@ -484,15 +557,21 @@ class GameApp:
         )
 
     def start_game(self, options: GameOptions) -> None:
-        self.sound_manager.stop_music()
+        self.sound_manager.set_volume(0.25)
         self._clear()
         self.current_controller = GameController(
             self.root,
             options,
             show_menu_callback=self.show_main_menu,
+            sound_manager=self.sound_manager,
         )
 
     def _clear(self) -> None:
+        self.root.attributes("-fullscreen", False)
+        self.root.update_idletasks()
+        self.root.unbind("<Return>")
+        self.root.unbind("<space>")
+        self._canvas_photo = None
         if self.current_controller is not None:
             self.current_controller.destroy()
             self.current_controller = None
@@ -502,5 +581,10 @@ class GameApp:
         if self.menu_frame is not None:
             self.menu_frame.destroy()
             self.menu_frame = None
-        for widget in self.root.winfo_children():
-            widget.destroy()
+            self.menu_background = None
+        remaining = self.root.winfo_children()
+        for widget in remaining:
+            try:
+                widget.destroy()
+            except Exception:
+                pass

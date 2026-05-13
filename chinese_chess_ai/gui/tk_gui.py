@@ -2,6 +2,13 @@ from __future__ import annotations
 
 import tkinter as tk
 
+from .background import (
+    BACKGROUND_IMAGE_NAME,
+    FIRST_IMAGE_NAME,
+    ONSITE_BACKGROUND_IMAGE_NAME,
+    background_asset_ready,
+    background_image_path,
+)
 from .board_view import (
     BOARD_HEIGHT,
     BOARD_WIDTH,

@@ -84,11 +84,11 @@ def prompt_difficulty() -> SearchConfig:
     while True:
         raw = input("Difficulty [1/2/3] (default: 2): ").strip() or "2"
         if raw == "1":
-            return SearchConfig(depth=1, use_alpha_beta=True)
+            return SearchConfig(depth=6)
         if raw == "2":
-            return SearchConfig(depth=2, use_alpha_beta=True)
+            return SearchConfig(depth=10)
         if raw == "3":
-            return SearchConfig(depth=3, use_alpha_beta=True)
+            return SearchConfig(depth=16)
         print("Please choose 1, 2, or 3.")
 
 

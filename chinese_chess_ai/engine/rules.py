@@ -255,7 +255,9 @@ def _sliding_attack_reaches(
                 row += delta_row
                 col += delta_col
                 continue
-            return piece.side is attacker_side and piece.kind in allowed_kinds
+            if piece.side is attacker_side and piece.kind in allowed_kinds:
+                return True
+            break
     return False
 
 
@@ -274,7 +276,9 @@ def _cannon_attack_reaches(state: GameState, target: Position, attacker_side: Si
             if not screen_found:
                 screen_found = True
             else:
-                return piece.side is attacker_side and piece.kind is PieceKind.CANNON
+                if piece.side is attacker_side and piece.kind is PieceKind.CANNON:
+                    return True
+                break
             row += delta_row
             col += delta_col
     return False

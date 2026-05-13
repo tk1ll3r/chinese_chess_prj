@@ -9,10 +9,15 @@ if str(PROJECT_ROOT) not in sys.path:
 from chinese_chess_ai.engine.types import Piece, PieceKind, Side
 from chinese_chess_ai.engine.constants import BOARD_COLS, BOARD_ROWS
 from chinese_chess_ai.gui.tk_gui import (
+    BACKGROUND_IMAGE_NAME,
     CELL_SIZE,
+    FIRST_IMAGE_NAME,
     IMAGE_OFFSET,
+    ONSITE_BACKGROUND_IMAGE_NAME,
     PIECE_IMAGE_SIZE,
     asset_bundle_ready,
+    background_asset_ready,
+    background_image_path,
     board_point,
     piece_asset_code,
     piece_display_code,
@@ -43,6 +48,17 @@ class GuiRenderingTests(unittest.TestCase):
         self.assertTrue(asset_bundle_ready())
         for path in required_asset_paths():
             self.assertTrue(path.exists(), str(path))
+
+    def test_background_asset_exists(self) -> None:
+        for image_name in (
+            FIRST_IMAGE_NAME,
+            BACKGROUND_IMAGE_NAME,
+            ONSITE_BACKGROUND_IMAGE_NAME,
+        ):
+            with self.subTest(image_name=image_name):
+                self.assertTrue(background_asset_ready(image_name))
+                self.assertTrue(background_image_path(image_name).exists())
+                self.assertEqual(background_image_path(image_name).name, image_name)
 
     def test_board_point_maps_position_to_canvas_center(self) -> None:
         expected_origin = IMAGE_OFFSET + (PIECE_IMAGE_SIZE // 2)

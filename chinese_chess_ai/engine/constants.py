@@ -49,11 +49,11 @@ INITIAL_PLACEMENTS = (
 
 MATERIAL_VALUES = {
     PieceKind.GENERAL: 10000,
-    PieceKind.ADVISOR: 20,
-    PieceKind.ELEPHANT: 20,
-    PieceKind.HORSE: 45,
-    PieceKind.CHARIOT: 90,
-    PieceKind.CANNON: 50,
-    PieceKind.SOLDIER: 10,
+    PieceKind.ADVISOR: 120,
+    PieceKind.ELEPHANT: 120,
+    PieceKind.HORSE: 270,
+    PieceKind.CHARIOT: 600,
+    PieceKind.CANNON: 285,
+    PieceKind.SOLDIER: 30,
 }
 

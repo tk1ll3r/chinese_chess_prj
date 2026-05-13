@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import queue
-import time
+import random
+import threading
 import tkinter as tk
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Literal
 from tkinter import messagebox, ttk
 
@@ -18,6 +20,7 @@ from ..network.lan_room_transport import LanRoomClientTransport, LanRoomHostTran
 from ..network.protocol import deserialize_state
 from ..network.transports import ClientTransport, HostTransport
 from ..rating.elo import EloSystem
+from .background import BackgroundImage, ONSITE_BACKGROUND_IMAGE_NAME, install_background
 from .board_view import BoardView, checked_general_position, piece_display_code
 from .move_history import MoveHistory
 from .timer_manager import TimerManager
@@ -39,6 +42,7 @@ class GameController:
         root: tk.Tk,
         options: GameOptions,
         show_menu_callback: Callable[[], None] | None = None,
+        sound_manager: SoundManager | None = None,
     ) -> None:
         self.root = root
         self.options = options
@@ -67,23 +71,52 @@ class GameController:
 
         self.check_blink_on = True
         self._closed = False
+        self._blink_after_id: str | None = None
+        self._timer_after_id: str | None = None
+        self._ai_after_id: str | None = None
+        self._ai_poll_after_id: str | None = None
+        self._ai_request_id = 0
+        self._ai_thinking = False
+        self._ai_thread: threading.Thread | None = None
+        self._ai_results: queue.Queue[tuple[int, Move | None, str | None]] = queue.Queue()
         self._network_events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.host_transport: HostTransport | None = None
         self.client_transport: ClientTransport | None = None
+        self._load_avatar_images()
 
-        self.frame = tk.Frame(root, bg="#2b2b2b")
+        # Use shared SoundManager if provided, otherwise create one
+        if sound_manager is not None:
+            self.sound_manager = sound_manager
+        else:
+            self.sound_manager = SoundManager(enabled=True)
+
+        # Set a generous default window size and position
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        win_w = min(1400, screen_w - 100)
+        win_h = min(960, screen_h - 100)
+        x = (screen_w - win_w) // 2
+        y = (screen_h - win_h) // 2
+        self.root.geometry(f"{win_w}x{win_h}+{x}+{y}")
+        self.root.update_idletasks()
+
+        self.frame = tk.Frame(root, bg="#1f1f1f")
         self.frame.grid(row=0, column=0, sticky="nsew")
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
         self.frame.grid_rowconfigure(0, weight=1)
+        self._background: BackgroundImage | None = install_background(
+            self.frame,
+            fallback="#1f1f1f",
+            image_name=ONSITE_BACKGROUND_IMAGE_NAME,
+        )
 
-        # Configure 3-column layout
-        self.frame.grid_columnconfigure(0, weight=0, minsize=200)  # Left panel
-        self.frame.grid_columnconfigure(1, weight=1)  # Board (center)
-        self.frame.grid_columnconfigure(2, weight=0, minsize=250)  # Right panel
+        # Configure 2-column layout (left panel + board; right panel overlays)
+        self.frame.grid_columnconfigure(0, weight=0, minsize=140)  # Left panel
+        self.frame.grid_columnconfigure(1, weight=1)  # Board fills all remaining space
 
         # Configure root background
-        self.root.configure(bg="#2b2b2b")
+        self.root.configure(bg="#1f1f1f")
 
         # Configure ttk styles for timer bars
         style = ttk.Style()
@@ -95,27 +128,26 @@ class GameController:
 
         # Board container with auto-scaling
         board_container = tk.Frame(self.frame, bg="#2b2b2b")
-        board_container.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+        board_container.grid(row=0, column=1, padx=10, pady=10)
         board_container.grid_rowconfigure(0, weight=1)
         board_container.grid_columnconfigure(0, weight=1)
 
         self.board_view = BoardView(board_container, self._on_square_clicked)
         self.board_view.canvas.grid(row=0, column=0)
 
-        self._build_right_panel()
+        # Right panel as overlay (hidden by default, slides in/out)
+        self._panel_visible = False
+        self._panel_animating = False
+        self._build_right_panel_overlay()
 
-        # Initialize sound manager
-        self.sound_manager = SoundManager(enabled=True)
+        # Start with correct scale factor before first draw (avoids flash)
+        self._apply_best_scale()
 
-        self.root.title("Chinese Chess")
+        self.root.title("Đại hải trình")
         self.root.resizable(True, True)
-        self.root.bind("<Configure>", self._on_root_configure)
 
         # Keyboard shortcuts
-        self.root.bind("<Control-z>", lambda e: self._undo_moves())
-        self.root.bind("<Control-r>", lambda e: self._restart_game())
-        self.root.bind("<Escape>", lambda e: self._back_to_menu())
-
+        self._bind_root_events()
         self._start_network_if_needed()
         self._set_status(self._initial_status())
         self._redraw()
@@ -126,38 +158,113 @@ class GameController:
 
     def destroy(self) -> None:
         self._closed = True
+        self._cancel_ai_work()
+        self._cancel_scheduled_callbacks()
+        self._unbind_root_events()
         self._close_network()
-        self.frame.destroy()
+        try:
+            self.frame.destroy()
+        except Exception:
+            pass
+
+    def _cancel_scheduled_callbacks(self) -> None:
+        for attr in (
+            "_blink_after_id",
+            "_timer_after_id",
+            "_ai_after_id",
+            "_ai_poll_after_id",
+        ):
+            after_id = getattr(self, attr)
+            if after_id is not None:
+                try:
+                    self.root.after_cancel(after_id)
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+
+    def _cancel_ai_work(self) -> None:
+        self._ai_request_id += 1
+        self._ai_thinking = False
+        for attr in ("_ai_after_id", "_ai_poll_after_id"):
+            after_id = getattr(self, attr)
+            if after_id is not None:
+                try:
+                    self.root.after_cancel(after_id)
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+
+    def _bind_root_events(self) -> None:
+        self.root.bind("<Configure>", self._on_root_configure)
+        self.root.bind("<Control-z>", lambda e: self._undo_moves())
+        self.root.bind("<Control-r>", lambda e: self._restart_game())
+        self.root.bind("<Escape>", lambda e: self._back_to_menu())
+
+    def _unbind_root_events(self) -> None:
+        try:
+            self.root.unbind("<Configure>")
+            self.root.unbind("<Control-z>")
+            self.root.unbind("<Control-r>")
+            self.root.unbind("<Escape>")
+        except Exception:
+            pass
+
+    def _load_avatar_images(self) -> None:
+        self._avatar_files: list[Path] = []
+        pics_dir = Path(__file__).parent.parent.parent / "assets" / "picture"
+        if pics_dir.exists():
+            self._avatar_files = sorted(
+                p for p in pics_dir.iterdir()
+                if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif"}
+            )
+        self._avatar_cache: dict[str, tk.PhotoImage] = {}
+        self._current_avatars: dict[str, tk.PhotoImage | None] = {"red": None, "black": None}
+        self._pick_random_avatars()
+
+    def _pick_random_avatars(self) -> None:
+        self._current_avatars = {"red": None, "black": None}
+        if len(self._avatar_files) < 2:
+            return
+        try:
+            from PIL import Image, ImageTk
+            chosen = random.sample(self._avatar_files, 2)
+            for side, path in zip(("red", "black"), chosen):
+                if str(path) not in self._avatar_cache:
+                    img = Image.open(path).resize((82, 82), Image.LANCZOS)
+                    self._avatar_cache[str(path)] = ImageTk.PhotoImage(img)
+                self._current_avatars[side] = self._avatar_cache[str(path)]
+        except Exception:
+            pass
 
     def _build_left_panel(self) -> None:
-        left_panel = tk.Frame(self.frame, bg="#1a1a1a", width=200)
-        left_panel.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
+        left_panel = tk.Frame(self.frame, bg="#1a1a1a", width=140)
+        left_panel.grid(row=0, column=0, sticky="nsew", padx=(3, 3), pady=6)
         left_panel.grid_propagate(False)
 
-        tk.Label(
-            left_panel,
-            text="Players",
-            font=("Arial", 16, "bold"),
-            fg="#e0e0e0",
-            bg="#1a1a1a",
-        ).pack(pady=(15, 15))
+        # Top spacer to center cards vertically
+        top_spacer = tk.Frame(left_panel, bg="#1a1a1a")
+        top_spacer.pack(fill="both", expand=True)
 
         self._build_player_card(
             left_panel, "BLACK",
             self.black_player_name, self.elo_black_var,
             self.timer.black_time_var,
-            accent="#1976D2", piece_char="將", is_top=True,
+            accent="#1976D2", is_top=True,
         )
 
         separator = tk.Frame(left_panel, bg="#333333", height=1)
-        separator.pack(fill="x", padx=20, pady=15)
+        separator.pack(fill="x", padx=12, pady=6)
 
         self._build_player_card(
             left_panel, "RED",
             self.red_player_name, self.elo_red_var,
             self.timer.red_time_var,
-            accent="#d32f2f", piece_char="帥", is_top=False,
+            accent="#d32f2f", is_top=False,
         )
+
+        # Bottom spacer to center cards vertically
+        bottom_spacer = tk.Frame(left_panel, bg="#1a1a1a")
+        bottom_spacer.pack(fill="both", expand=True)
 
     def _build_player_card(
         self,
@@ -167,46 +274,47 @@ class GameController:
         elo_var: tk.StringVar,
         time_var: tk.StringVar,
         accent: str,
-        piece_char: str,
         is_top: bool,
     ) -> None:
         card = tk.Frame(parent, bg="#252525", highlightbackground=accent, highlightthickness=1)
-        card.pack(padx=12, fill="x", pady=(0, 5))
+        card.pack(padx=8, fill="x", pady=(0, 5))
 
-        avatar_frame = tk.Frame(card, bg="#252525", height=55)
-        avatar_frame.pack(fill="x", pady=(10, 5))
-        avatar_frame.pack_propagate(False)
+        side_key = "black" if is_top else "red"
+        avatar_img = self._current_avatars.get(side_key)
 
-        avatar_bg = tk.Frame(avatar_frame, bg="#333333", width=44, height=44)
-        avatar_bg.pack(side="left", padx=(12, 0))
+        avatar_bg = tk.Frame(card, bg="#333333", width=82, height=82)
+        avatar_bg.pack(pady=(10, 4))
         avatar_bg.pack_propagate(False)
 
-        tk.Label(
-            avatar_bg,
-            text=piece_char,
-            font=("Arial", 20, "bold"),
-            fg=accent,
-            bg="#333333",
-        ).place(relx=0.5, rely=0.5, anchor="center")
+        if avatar_img:
+            tk.Label(
+                avatar_bg,
+                image=avatar_img,
+                bg="#333333",
+            ).place(relx=0.5, rely=0.5, anchor="center")
+        else:
+            tk.Label(
+                avatar_bg,
+                text="?",
+                font=("Arial", 28, "bold"),
+                fg=accent,
+                bg="#333333",
+            ).place(relx=0.5, rely=0.5, anchor="center")
 
-        info_frame = tk.Frame(avatar_frame, bg="#252525")
-        info_frame.pack(side="left", fill="x", expand=True, padx=(8, 10))
-
         tk.Label(
-            info_frame,
+            card,
             text=name,
-            font=("Arial", 11, "bold"),
+            font=("Arial", 10, "bold"),
             fg="#ffffff",
             bg="#252525",
-            anchor="w",
-        ).pack(fill="x")
+        ).pack(pady=(2, 0))
 
-        elo_frame = tk.Frame(info_frame, bg="#252525")
-        elo_frame.pack(fill="x")
+        elo_frame = tk.Frame(card, bg="#252525")
+        elo_frame.pack(pady=(2, 4))
 
         tk.Label(
             elo_frame,
-            text="ELO",
+            text="ELO ",
             font=("Arial", 8),
             fg="#888888",
             bg="#252525",
@@ -218,7 +326,7 @@ class GameController:
             font=("Arial", 11, "bold"),
             fg="#ffd700",
             bg="#252525",
-        ).pack(side="left", padx=(6, 0))
+        ).pack(side="left")
 
         self.elo_delta_label = tk.Label(
             elo_frame,
@@ -230,24 +338,24 @@ class GameController:
         self.elo_delta_label.pack(side="left", padx=(4, 0))
 
         timer_frame = tk.Frame(card, bg=accent, highlightthickness=0)
-        timer_frame.pack(fill="x", padx=0, pady=(5, 0))
+        timer_frame.pack(fill="x", padx=0, pady=(6, 0))
 
         tk.Label(
             timer_frame,
             textvariable=time_var,
-            font=("Arial", 18, "bold"),
+            font=("Arial", 16, "bold"),
             fg="#ffffff",
             bg=accent,
-        ).pack(pady=(4, 2))
+        ).pack(pady=(3, 1))
 
         timer_bar = ttk.Progressbar(
             card,
             orient="horizontal",
-            length=160,
+            length=140,
             mode="determinate",
             style=f"{'Black' if is_top else 'Red'}.Horizontal.TProgressbar",
         )
-        timer_bar.pack(pady=(2, 8), padx=10, fill="x")
+        timer_bar.pack(pady=(1, 8), padx=8, fill="x")
         timer_bar["maximum"] = 600
         timer_bar["value"] = 600
 
@@ -258,88 +366,90 @@ class GameController:
             self.timer.red_timer_frame = timer_frame
             self.timer.red_timer_bar = timer_bar
 
-    def _build_right_panel(self) -> None:
-        """Build right panel with controls and move history."""
-        right_panel = tk.Frame(self.frame, bg="#1a1a1a", width=250)
-        right_panel.grid(row=0, column=2, sticky="nsew", padx=(5, 10), pady=10)
-        right_panel.grid_propagate(False)
+    def _build_right_panel_overlay(self) -> None:
+        """Right panel as an overlay that slides in/out from the right edge."""
+        PANEL_WIDTH = 120
+        self._right_panel_width = PANEL_WIDTH
 
-        # Title
-        tk.Label(
-            right_panel,
-            text="Game Controls",
+        self.right_panel = tk.Frame(self.frame, bg="#1a1a1a", width=PANEL_WIDTH)
+        self.right_panel.grid_propagate(False)
+
+        # Toggle button (always visible, small tab on the right edge)
+        self._toggle_btn = tk.Label(
+            self.frame,
+            text="\u25c0",
             font=("Arial", 14, "bold"),
-            fg="#ffffff",
-            bg="#1a1a1a"
-        ).pack(pady=(10, 15))
+            fg="#cccccc",
+            bg="#333333",
+            cursor="hand2",
+            relief="flat",
+            padx=4, pady=20,
+        )
+        self._toggle_btn.bind("<Button-1>", lambda e: self._toggle_right_panel())
 
         # Control buttons
-        button_style = {
-            "font": ("Arial", 10),
+        btn_style = {
+            "font": ("Arial", 8),
             "relief": "flat",
             "cursor": "hand2",
             "borderwidth": 0,
-            "width": 20,
-            "height": 2
+            "height": 1
         }
 
         tk.Button(
-            right_panel,
+            self.right_panel,
             text="Restart",
             command=self._restart_game,
             bg="#4CAF50",
             fg="white",
             activebackground="#45a049",
             activeforeground="white",
-            **button_style
-        ).pack(pady=5, padx=10)
+            **btn_style
+        ).pack(fill="x", padx=6, pady=(8, 3))
 
         tk.Button(
-            right_panel,
+            self.right_panel,
             text="Undo",
             command=self._undo_moves,
             bg="#2196F3",
             fg="white",
             activebackground="#1976D2",
             activeforeground="white",
-            **button_style
-        ).pack(pady=5, padx=10)
+            **btn_style
+        ).pack(fill="x", padx=6, pady=3)
 
         tk.Button(
-            right_panel,
-            text="Back to Menu",
+            self.right_panel,
+            text="Menu",
             command=self._back_to_menu,
             bg="#757575",
             fg="white",
             activebackground="#616161",
             activeforeground="white",
-            **button_style
-        ).pack(pady=5, padx=10)
+            **btn_style
+        ).pack(fill="x", padx=6, pady=3)
 
         # Separator
-        tk.Frame(right_panel, bg="#3a3a3a", height=2).pack(fill="x", pady=15)
+        tk.Frame(self.right_panel, bg="#3a3a3a", height=2).pack(fill="x", pady=8)
 
         # Move history
         tk.Label(
-            right_panel,
-            text="Move History",
-            font=("Arial", 12, "bold"),
+            self.right_panel,
+            text="Moves",
+            font=("Arial", 9, "bold"),
             fg="#ffffff",
             bg="#1a1a1a"
-        ).pack(pady=(0, 10))
+        ).pack(pady=(0, 5))
 
-        # Scrollable move list
-        history_frame = tk.Frame(right_panel, bg="#2a2a2a", relief="solid", borderwidth=1)
-        history_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        history_frame = tk.Frame(self.right_panel, bg="#2a2a2a", relief="solid", borderwidth=1)
+        history_frame.pack(fill="both", expand=True, padx=5, pady=(0, 5))
 
-        # Scrollbar
         scrollbar = tk.Scrollbar(history_frame)
         scrollbar.pack(side="right", fill="y")
 
-        # Text widget for move history
         self.history_text = tk.Text(
             history_frame,
-            font=("Courier", 9),
+            font=("Courier", 8),
             fg="#cccccc",
             bg="#2a2a2a",
             relief="flat",
@@ -347,28 +457,96 @@ class GameController:
             wrap="word",
             state="disabled"
         )
-        self.history_text.pack(fill="both", expand=True, padx=5, pady=5)
+        self.history_text.pack(fill="both", expand=True, padx=3, pady=3)
         scrollbar.config(command=self.history_text.yview)
 
         # Status
-        tk.Label(
-            right_panel,
-            text="Status",
-            font=("Arial", 10, "bold"),
-            fg="#ffffff",
-            bg="#1a1a1a"
-        ).pack(pady=(10, 5))
-
         status_label = tk.Label(
-            right_panel,
+            self.right_panel,
             textvariable=self.status_var,
-            font=("Arial", 9),
+            font=("Arial", 7),
             fg="#999999",
             bg="#1a1a1a",
-            wraplength=230,
+            wraplength=PANEL_WIDTH - 10,
             justify="left"
         )
-        status_label.pack(padx=10)
+        status_label.pack(padx=5, pady=(0, 5))
+
+        # Position panel and toggle button off-screen initially
+        self._place_overlay(visible=False)
+
+    def _place_overlay(self, visible: bool) -> None:
+        fw = self.frame.winfo_width() or self.root.winfo_width()
+        panel_x = fw - self._right_panel_width if visible else fw
+        self.right_panel.place(x=panel_x, y=0, width=self._right_panel_width, rely=0, relheight=1)
+        toggle_x = fw - self._right_panel_width - 18 if visible else fw - 18
+        self._toggle_btn.place(x=toggle_x, y=0, rely=0.5, anchor="w")
+        self._toggle_btn.config(text="\u25b6" if not visible else "\u25c0")
+
+    def _toggle_right_panel(self) -> None:
+        if self._panel_animating:
+            return
+        self._panel_animating = True
+        if self._panel_visible:
+            self._slide_out()
+        else:
+            self._slide_in()
+
+    def _slide_in(self) -> None:
+        fw = self.frame.winfo_width()
+        start_x = fw
+        end_x = fw - self._right_panel_width
+        steps = 8
+        step_size = (end_x - start_x) / steps
+
+        def animate(step: int = 0, x: float | None = None) -> None:
+            if self._closed:
+                self._panel_animating = False
+                return
+            if x is None:
+                x = start_x
+            if step < steps:
+                x = start_x + step_size * (step + 1)
+                self.right_panel.place(x=int(x), y=0, width=self._right_panel_width, rely=0, relheight=1)
+                toggle_x = int(x) - 18
+                self._toggle_btn.place(x=toggle_x, y=0, rely=0.5, anchor="w")
+                self.root.after(12, lambda: animate(step + 1, x))
+            else:
+                self.right_panel.place(x=int(end_x), y=0, width=self._right_panel_width, rely=0, relheight=1)
+                toggle_x = int(end_x) - 18
+                self._toggle_btn.place(x=toggle_x, y=0, rely=0.5, anchor="w")
+                self._toggle_btn.config(text="\u25c0")
+                self._panel_visible = True
+                self._panel_animating = False
+        animate()
+
+    def _slide_out(self) -> None:
+        fw = self.frame.winfo_width()
+        start_x = fw - self._right_panel_width
+        end_x = fw
+        steps = 8
+        step_size = (end_x - start_x) / steps
+
+        def animate(step: int = 0, x: float | None = None) -> None:
+            if self._closed:
+                self._panel_animating = False
+                return
+            if x is None:
+                x = start_x
+            if step < steps:
+                x = start_x + step_size * (step + 1)
+                self.right_panel.place(x=int(x), y=0, width=self._right_panel_width, rely=0, relheight=1)
+                toggle_x = int(x) - 18
+                self._toggle_btn.place(x=toggle_x, y=0, rely=0.5, anchor="w")
+                self.root.after(12, lambda: animate(step + 1, x))
+            else:
+                self.right_panel.place_forget()
+                toggle_x = fw - 18
+                self._toggle_btn.place(x=toggle_x, y=0, rely=0.5, anchor="w")
+                self._toggle_btn.config(text="\u25b6")
+                self._panel_visible = False
+                self._panel_animating = False
+        animate()
 
     def _update_move_history(self) -> None:
         if hasattr(self, 'history_text'):
@@ -384,22 +562,29 @@ class GameController:
             self.history_text.config(state="disabled")
             self.history_text.see("end")
 
+    def _apply_best_scale(self) -> None:
+        self.root.update_idletasks()
+        panel_w = 140 + 20
+        available_width = max(1, self.root.winfo_width() - panel_w)
+        available_height = max(1, self.root.winfo_height() - 16)
+        scale_w = available_width // 377
+        scale_h = available_height // 417
+        scale = max(1, min(scale_w, scale_h))
+        self.board_view.configure_scale(scale)
+
     def _on_root_configure(self, event: tk.Event[tk.Misc]) -> None:
-        """Handle window resize - scale board to fit available space."""
         if event.widget is not self.root or self._closed:
             return
 
-        self.root.update_idletasks()
+        # Reposition overlay elements on resize
+        self._place_overlay(visible=self._panel_visible)
 
-        # Calculate available space for board (center column)
-        # Left panel: 180px, Right panel: 250px, padding: ~40px
-        available_width = max(1, self.root.winfo_width() - 180 - 250 - 60)
-        available_height = max(1, self.root.winfo_height() - 40)
-
-        # Calculate scale factor to fit board in available space
-        scale_w = available_width // 377  # BASE_BOARD_WIDTH
-        scale_h = available_height // 417  # BASE_BOARD_HEIGHT
-        scale = max(1, min(scale_w, scale_h, 4))
+        panel_w = 140 + 20
+        available_width = max(1, self.root.winfo_width() - panel_w)
+        available_height = max(1, self.root.winfo_height() - 16)
+        scale_w = available_width // 377
+        scale_h = available_height // 417
+        scale = max(1, min(scale_w, scale_h))
 
         if scale != self.board_view.scale_factor:
             self.board_view.configure_scale(scale)
@@ -427,10 +612,10 @@ class GameController:
 
     def _difficulty_to_config(self, difficulty: str) -> SearchConfig:
         if difficulty == "Easy":
-            return SearchConfig(depth=1, use_alpha_beta=True)
+            return SearchConfig(time_limit=1.0)
         if difficulty == "Hard":
-            return SearchConfig(depth=3, use_alpha_beta=True)
-        return SearchConfig(depth=2, use_alpha_beta=True)
+            return SearchConfig(time_limit=4.0)
+        return SearchConfig(time_limit=2.0)
 
     def _start_network_if_needed(self) -> None:
         if self.options.mode == "lan_host":
@@ -620,25 +805,91 @@ class GameController:
         self._update_move_history()
 
     def _schedule_ai_if_needed(self) -> None:
+        if self._closed or self._ai_thinking or self._ai_after_id is not None:
+            return
         if self._ai_to_move() and not self.game_over:
-            self.root.after(150, self._run_ai_turn)
+            self._ai_after_id = self.root.after(150, self._run_ai_turn)
 
     def _run_ai_turn(self) -> None:
+        self._ai_after_id = None
+        if self._closed or self._ai_thinking or not self._ai_to_move() or self.game_over:
+            return
+        self._ai_request_id += 1
+        request_id = self._ai_request_id
+        state_snapshot = self.state.clone()
+        search_config = self.search_config
+        self._ai_thinking = True
+        self._set_status("AI is thinking...")
+        self._redraw()
+
+        def worker() -> None:
+            move: Move | None = None
+            error: str | None = None
+            try:
+                move = choose_move(state_snapshot, search_config)
+            except Exception as exc:
+                error = str(exc)
+            self._ai_results.put((request_id, move, error))
+
+        self._ai_thread = threading.Thread(target=worker, daemon=True)
+        self._ai_thread.start()
+        self._ai_poll_after_id = self.root.after(50, self._poll_ai_result)
+
+    def _poll_ai_result(self) -> None:
+        if self._closed:
+            return
+
+        current_result: tuple[int, Move | None, str | None] | None = None
+        while True:
+            try:
+                result = self._ai_results.get_nowait()
+            except queue.Empty:
+                break
+            if result[0] == self._ai_request_id:
+                current_result = result
+                break
+
+        if current_result is None:
+            if self._ai_thinking:
+                self._ai_poll_after_id = self.root.after(50, self._poll_ai_result)
+            else:
+                self._ai_poll_after_id = None
+            return
+
+        self._ai_poll_after_id = None
+        self._ai_thinking = False
+        _request_id, ai_move, error = current_result
+
+        if error is not None:
+            self._set_status(f"AI error: {error}")
+            return
         if not self._ai_to_move() or self.game_over:
             return
-        self._set_status("AI is thinking...")
-        self.root.update_idletasks()
-        ai_move = choose_move(self.state, self.search_config)
         if ai_move is None:
             self._check_game_over(show_dialog=True)
             return
-        self._apply_move(ai_move, actor="AI")
+
+        legal_move = next(
+            (
+                move
+                for move in generate_legal_moves(self.state)
+                if move.start == ai_move.start and move.end == ai_move.end
+            ),
+            None,
+        )
+        if legal_move is None:
+            self._set_status("AI move was no longer legal. Retrying...")
+            self._schedule_ai_if_needed()
+            return
+
+        self._apply_move(legal_move, actor="AI")
 
     def _undo_moves(self) -> None:
         if self.options.mode in {"lan_host", "lan_join"}:
             self._set_status("The LAN MVP does not support synchronized undo yet. Return to the menu to start a new game.")
             return
 
+        self._cancel_ai_work()
         undo_count = 2 if self.options.mode == "ai" else 1
         undone = 0
         for _ in range(undo_count):
@@ -665,7 +916,9 @@ class GameController:
         if self.options.mode in {"lan_host", "lan_join"}:
             self._set_status("The LAN MVP does not support synchronized restart yet. Return to the menu and host/join again.")
             return
+        self._cancel_ai_work()
         self.sound_manager.play_button()
+        self._pick_random_avatars()
         self.state = GameState.initial()
         self.selected_square = None
         self.game_over = False
@@ -706,6 +959,8 @@ class GameController:
         return self.options.mode == "ai" and self.state.side_to_move is self.ai_side
 
     def _check_game_over(self, show_dialog: bool) -> bool:
+        if self.game_over:
+            return True
         legal_moves = generate_legal_moves(self.state)
         if legal_moves:
             return False
@@ -753,7 +1008,7 @@ class GameController:
             legal_moves=self._legal_moves_from_selected(),
             checked_square=checked_square,
             check_blink_on=self.check_blink_on,
-            banner="Check!" if in_check else "",
+            banner="Nguy hiểm, hải tặc đang bắt Luffy!" if in_check else "",
             flip=self._should_flip_board(),
         )
         self._refresh_sidebar(in_check)
@@ -764,7 +1019,7 @@ class GameController:
         if self.options.mode in {"ai", "lan_host", "lan_join"} and self.local_side is not None:
             turn += f"\nYou: {self._side_label(self.local_side)}"
         if in_check:
-            turn += "\nCheck!"
+            turn += "\nNguy hiểm, hải tặc đang bắt Luffy!"
         self.turn_var.set(turn)
         self.history_var.set("\n".join(self.move_history.moves[-10:]) if self.move_history.moves else "No moves yet.")
         red_captures = ", ".join(self.move_history.captured_by_red) if self.move_history.captured_by_red else "-"
@@ -797,14 +1052,17 @@ class GameController:
             return
         self.check_blink_on = not self.check_blink_on
         if is_in_check(self.state, self.state.side_to_move):
-            self._redraw()
-        self.root.after(450, self._schedule_blink)
+            self.board_view.update_check_highlight(
+                checked_general_position(self.state, self.state.side_to_move),
+                self.check_blink_on,
+            )
+        self._blink_after_id = self.root.after(450, self._schedule_blink)
 
     def _schedule_timer_update(self) -> None:
         if self._closed:
             return
         self._update_timer()
-        self.root.after(1000, self._schedule_timer_update)
+        self._timer_after_id = self.root.after(1000, self._schedule_timer_update)
 
     def _update_timer(self) -> None:
         if self._check_game_over(show_dialog=False):
